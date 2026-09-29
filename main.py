@@ -63,6 +63,7 @@ from transcript_storage import (
     TRANSCRIPTS_DIR,
     delete_transcript,
     export_to_markdown,
+    export_to_notebooklm,
     export_to_srt,
     export_to_vtt,
     has_transcript,
@@ -70,6 +71,7 @@ from transcript_storage import (
     save_transcript,
     update_transcript_notion_info,
 )
+from ai_worker import AIStudyNotesWorker
 from ui.audio_meter import AudioMeter
 from ui.compare_dialog import CompareDialog
 from ui.drop_zone import DropZoneWidget
@@ -373,14 +375,38 @@ class TranscribeInterface(QWidget):
         output_layout.setContentsMargins(14, 12, 14, 12)
         output_layout.setSpacing(8)
 
-        # Header with stats and toolbar
+        # Header with view toggle and toolbar
         output_header = QHBoxLayout()
         output_header_left = QVBoxLayout()
         output_header_left.setSpacing(2)
-        output_header_left.addWidget(StrongBodyLabel("Live Transcript Preview", self))
+        output_header_left.addWidget(StrongBodyLabel("Live Transcript & AI Study Guide", self))
         self.stats_label = CaptionLabel("0 segments | 0 words", self)
         output_header_left.addWidget(self.stats_label)
         output_header.addLayout(output_header_left, 1)
+
+        # View Switcher (Transcript vs Study Guide)
+        self.view_transcript_btn = PushButton("📜 Transcript", self)
+        self.view_transcript_btn.setCheckable(True)
+        self.view_transcript_btn.setChecked(True)
+        self.view_study_btn = PushButton("📚 AI Study Guide", self)
+        self.view_study_btn.setCheckable(True)
+        self.view_study_btn.setChecked(False)
+
+        def switch_to_transcript():
+            self.view_transcript_btn.setChecked(True)
+            self.view_study_btn.setChecked(False)
+            self.preview_stack.setCurrentIndex(0)
+
+        def switch_to_study():
+            self.view_transcript_btn.setChecked(False)
+            self.view_study_btn.setChecked(True)
+            self.preview_stack.setCurrentIndex(1)
+
+        self.view_transcript_btn.clicked.connect(switch_to_transcript)
+        self.view_study_btn.clicked.connect(switch_to_study)
+
+        output_header.addWidget(self.view_transcript_btn)
+        output_header.addWidget(self.view_study_btn)
 
         self.copy_btn = PushButton("📋 Copy", self)
         self.copy_btn.setFixedWidth(80)
@@ -397,6 +423,8 @@ class TranscribeInterface(QWidget):
         act_vtt = QAction("Export WebVTT (.vtt)...", self)
         act_md = QAction("Export Markdown (.md)...", self)
         act_json = QAction("Export JSON (.json)...", self)
+        act_notebooklm = QAction("📓 Export for NotebookLM (.md)...", self)
+        act_copy_notebooklm = QAction("📋 Copy for NotebookLM", self)
         act_folder = QAction("📂 Open Transcripts Folder", self)
 
         self.export_menu.addAction(act_txt)
@@ -405,12 +433,16 @@ class TranscribeInterface(QWidget):
         self.export_menu.addAction(act_md)
         self.export_menu.addAction(act_json)
         self.export_menu.addSeparator()
+        self.export_menu.addAction(act_notebooklm)
+        self.export_menu.addAction(act_copy_notebooklm)
+        self.export_menu.addSeparator()
         self.export_menu.addAction(act_folder)
 
         # Store actions for connecting in MainWindow
         self._export_actions = {
             "txt": act_txt, "srt": act_srt, "vtt": act_vtt,
-            "md": act_md, "json": act_json, "folder": act_folder,
+            "md": act_md, "json": act_json, "notebooklm": act_notebooklm,
+            "copy_notebooklm": act_copy_notebooklm, "folder": act_folder,
         }
 
         self.export_btn.clicked.connect(
@@ -425,10 +457,20 @@ class TranscribeInterface(QWidget):
 
         output_layout.addLayout(output_header)
 
+        # Stacked view: page 0 = transcript, page 1 = study notes
+        self.preview_stack = QStackedWidget(self)
+
         self.output_text = TextEdit(self)
         self.output_text.setReadOnly(True)
         self.output_text.setPlaceholderText("Transcribed text with segment timestamps will appear here...")
-        output_layout.addWidget(self.output_text)
+        self.preview_stack.addWidget(self.output_text)
+
+        self.study_notes_text = TextEdit(self)
+        self.study_notes_text.setReadOnly(False)
+        self.study_notes_text.setPlaceholderText("AI educational study guide, key concepts, and active recall flashcards will appear here...")
+        self.preview_stack.addWidget(self.study_notes_text)
+
+        output_layout.addWidget(self.preview_stack)
 
         parent_layout.addWidget(output_card, 1)
 
@@ -484,6 +526,11 @@ class TranscribeInterface(QWidget):
         self.compare_models_btn.setToolTip("Compare current transcript with a second model")
         action_layout.addWidget(self.compare_models_btn)
 
+        self.study_guide_btn = PushButton("🎓 Study Guide", self)
+        self.study_guide_btn.setEnabled(False)
+        self.study_guide_btn.setToolTip("Generate comprehensive lecture notes, key concepts, and active recall flashcards using Gemini or Ollama")
+        action_layout.addWidget(self.study_guide_btn)
+
         self.push_only_btn = PushButton("Push to Notion", self)
         self.push_only_btn.setEnabled(False)
         action_layout.addWidget(self.push_only_btn)
@@ -526,6 +573,8 @@ class MainWindow(FluentWindow):
         self._model_a_segments: List[Dict[str, Any]] = []
         self._notion_pages: List[Dict[str, Any]] = []
         self._pages_worker: Optional[NotionFetchPagesWorker] = None
+        self._study_notes: str = ""
+        self._ai_worker: Optional[AIStudyNotesWorker] = None
 
         # Audio Recorder
         init_source = config_manager.get("audio_source", "mic")
@@ -643,6 +692,8 @@ class MainWindow(FluentWindow):
         tp._export_actions["vtt"].triggered.connect(lambda: self._export_transcript("vtt"))
         tp._export_actions["md"].triggered.connect(lambda: self._export_transcript("md"))
         tp._export_actions["json"].triggered.connect(lambda: self._export_transcript("json"))
+        tp._export_actions["notebooklm"].triggered.connect(lambda: self._export_transcript("notebooklm"))
+        tp._export_actions["copy_notebooklm"].triggered.connect(self._copy_for_notebooklm)
         tp._export_actions["folder"].triggered.connect(self._open_transcripts_folder)
         tp.clear_btn.clicked.connect(self._clear_transcript)
 
@@ -652,6 +703,7 @@ class MainWindow(FluentWindow):
         tp.diarize_cb.toggled.connect(self._on_diarize_toggled)
         tp.transcribe_only_btn.clicked.connect(self._start_transcribe_only)
         tp.compare_models_btn.clicked.connect(self._open_model_comparison_flow)
+        tp.study_guide_btn.clicked.connect(self._generate_study_guide)
         tp.push_only_btn.clicked.connect(self._start_notion_push)
         tp.action_btn.clicked.connect(self._start_transcribe_and_push)
 
@@ -792,6 +844,14 @@ class MainWindow(FluentWindow):
     def export_btn(self):
         return self._tp.export_btn
 
+    @property
+    def study_guide_btn(self):
+        return self._tp.study_guide_btn
+
+    @property
+    def study_notes_text(self):
+        return self._tp.study_notes_text
+
     # ==========================
     # Tab & Audio Source Handling
     # ==========================
@@ -916,7 +976,13 @@ class MainWindow(FluentWindow):
 
             self.push_only_btn.setEnabled(True)
             self.compare_models_btn.setEnabled(True)
+            self.study_guide_btn.setEnabled(True)
             self.export_btn.setEnabled(True)
+
+            # Load saved study notes if present
+            saved_notes = data.get("study_notes", "")
+            self._study_notes = saved_notes
+            self.study_notes_text.setPlainText(saved_notes)
 
             filename = os.path.basename(file_path)
             words = data.get("word_count", sum(len(s.get("text", "").split()) for s in segments))
@@ -1394,6 +1460,7 @@ class MainWindow(FluentWindow):
         self._set_ui_processing_state(False)
         self.push_only_btn.setEnabled(len(segments) > 0)
         self.compare_models_btn.setEnabled(len(segments) > 0)
+        self.study_guide_btn.setEnabled(len(segments) > 0)
         self.export_btn.setEnabled(len(segments) > 0)
 
         self._render_transcript_segments(segments)
@@ -1409,6 +1476,7 @@ class MainWindow(FluentWindow):
                     device=config_manager.get("whisper_device", "cuda"),
                     compute_type=config_manager.get("compute_type", "float16"),
                     language=config_manager.get("whisper_language") or None,
+                    study_notes=self._study_notes or self.study_notes_text.toPlainText().strip(),
                 )
                 self.recordings_list.refresh()
             except Exception as e:
@@ -1612,6 +1680,10 @@ class MainWindow(FluentWindow):
             last_end = self._transcribed_segments[-1].get("end", 0)
             metadata["duration"] = format_timestamp(last_end)
 
+        current_study_notes = self._study_notes or self.study_notes_text.toPlainText().strip()
+        if current_study_notes:
+            metadata["study_notes"] = current_study_notes
+
         self._set_ui_processing_state(True)
         if target_page_id:
             self.status_label.setText("Appending transcript to existing Notion page...")
@@ -1696,6 +1768,7 @@ class MainWindow(FluentWindow):
         self.action_btn.setEnabled(not is_processing)
         self.transcribe_only_btn.setEnabled(not is_processing)
         self.compare_models_btn.setEnabled(not is_processing and len(self._transcribed_segments) > 0)
+        self.study_guide_btn.setEnabled(not is_processing and len(self._transcribed_segments) > 0)
         self.push_only_btn.setEnabled(not is_processing and len(self._transcribed_segments) > 0)
         self._tp.pivot.setEnabled(not is_processing)
         self.source_mode_combo.setEnabled(not is_processing)
@@ -1734,12 +1807,15 @@ class MainWindow(FluentWindow):
 
     def _clear_transcript(self):
         self.output_text.clear()
+        self.study_notes_text.clear()
+        self._study_notes = ""
         self._transcribed_segments.clear()
         self._model_a_segments.clear()
         self._transcription_text = ""
         self.stats_label.setText("0 segments | 0 words")
         self.push_only_btn.setEnabled(False)
         self.compare_models_btn.setEnabled(False)
+        self.study_guide_btn.setEnabled(False)
         self.export_btn.setEnabled(False)
         self.progress_bar.setValue(0)
         self.pct_label.setText("0%")
@@ -1805,6 +1881,23 @@ class MainWindow(FluentWindow):
                     output_path=save_path,
                     metadata=meta,
                 )
+            elif format_type == "notebooklm":
+                meta = {
+                    "title": self.title_input.text() or f"Lecture: {base_name}",
+                    "model": self._last_model_name,
+                    "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                    "tags": self.tags_input.text().strip() or "Education, Lecture",
+                    "duration": self.timer_label.text(),
+                }
+                study_notes = self._study_notes or self.study_notes_text.toPlainText().strip()
+                export_to_notebooklm(
+                    audio_path=self._current_audio_file or "",
+                    segments=self._transcribed_segments,
+                    full_text=self._transcription_text,
+                    output_path=save_path,
+                    study_notes=study_notes,
+                    metadata=meta,
+                )
             elif format_type == "json":
                 import json
                 from transcript_storage import load_transcript
@@ -1817,6 +1910,7 @@ class MainWindow(FluentWindow):
                         "full_text": self._transcription_text,
                         "segments": self._transcribed_segments,
                         "model": self._last_model_name,
+                        "study_notes": self._study_notes or self.study_notes_text.toPlainText().strip(),
                     }
                 with open(save_path, "w", encoding="utf-8") as f:
                     json.dump(data, f, indent=2, ensure_ascii=False)
@@ -1839,6 +1933,140 @@ class MainWindow(FluentWindow):
                 position=InfoBarPosition.TOP,
                 parent=self,
             )
+
+    def _copy_for_notebooklm(self):
+        """Format the current lecture transcript and study guide for NotebookLM and copy to clipboard."""
+        if not self._transcription_text:
+            InfoBar.info(
+                title="Nothing to Copy",
+                content="Please transcribe audio first.",
+                isClosable=True,
+                duration=2000,
+                position=InfoBarPosition.BOTTOM_RIGHT,
+                parent=self,
+            )
+            return
+
+        from ai_service import AIService
+        base_name = Path(self._current_audio_file).stem if self._current_audio_file else "Lecture"
+        title = self.title_input.text() or f"Lecture: {base_name}"
+        date_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+        model = self._last_model_name
+        tags = self.tags_input.text().strip() or "Education, Lecture"
+        duration = self.timer_label.text()
+        unique_speakers = list(dict.fromkeys(s.get("speaker", "Speaker 1") for s in self._transcribed_segments if "speaker" in s))
+        speaker_count = len(unique_speakers) or 1
+        study_notes = self._study_notes or self.study_notes_text.toPlainText().strip()
+
+        formatted = AIService.format_for_notebooklm(
+            title=title,
+            date=date_str,
+            duration=duration,
+            model=model,
+            speakers=speaker_count,
+            tags=tags,
+            summary=study_notes,
+            transcript=self._transcription_text,
+        )
+
+        QApplication.clipboard().setText(formatted)
+        InfoBar.success(
+            title="Copied for NotebookLM",
+            content="Formatted source document copied to clipboard! You can now paste it into NotebookLM.",
+            isClosable=True,
+            duration=4000,
+            position=InfoBarPosition.BOTTOM_RIGHT,
+            parent=self,
+        )
+
+    def _generate_study_guide(self):
+        """Invoke AIStudyNotesWorker using Gemini or Ollama to generate study guide."""
+        if not self._transcription_text:
+            InfoBar.warning(
+                title="No Transcript",
+                content="Please transcribe an audio or video lecture first.",
+                isClosable=True,
+                duration=4000,
+                position=InfoBarPosition.TOP,
+                parent=self,
+            )
+            return
+
+        provider = config_manager.get("ai_provider", "gemini")
+        if provider == "gemini" and not config_manager.get("gemini_api_key"):
+            w = MessageBox(
+                "Gemini API Key Required",
+                "Google Gemini API key has not been configured.\n\n"
+                "Would you like to open Settings to add your free Gemini API key?",
+                self,
+            )
+            w.yesButton.setText("Open Settings")
+            w.cancelButton.setText("Cancel")
+            if w.exec():
+                self._open_settings()
+            return
+
+        self._set_ui_processing_state(True)
+        self.status_label.setText("Synthesizing educational study guide with AI...")
+        self.progress_bar.setValue(50)
+        self.pct_label.setText("AI Thinking...")
+
+        self._ai_worker = AIStudyNotesWorker(
+            transcript_text=self._transcription_text,
+            parent=self,
+        )
+        self._ai_worker.status_changed.connect(lambda msg: self.status_label.setText(msg))
+        self._ai_worker.notes_ready.connect(self._on_study_notes_ready)
+        self._ai_worker.error_occurred.connect(self._on_study_notes_error)
+        self._ai_worker.start()
+
+    def _on_study_notes_ready(self, notes_markdown: str):
+        self._set_ui_processing_state(False)
+        self.progress_bar.setValue(100)
+        self.pct_label.setText("100%")
+        self._study_notes = notes_markdown
+        self.study_notes_text.setPlainText(notes_markdown)
+
+        # Automatically switch preview to Study Guide view
+        self._tp.view_study_btn.click()
+
+        self.status_label.setText("AI Study Guide generated successfully! Ready to push or export.")
+        InfoBar.success(
+            title="Study Guide Ready",
+            content="Generated lecture summary, key definitions, and active recall flashcards!",
+            isClosable=True,
+            duration=5000,
+            position=InfoBarPosition.TOP,
+            parent=self,
+        )
+
+        # Update local storage with new study notes
+        if self._current_audio_file:
+            try:
+                save_transcript(
+                    audio_path=self._current_audio_file,
+                    segments=self._transcribed_segments,
+                    full_text=self._transcription_text,
+                    model=self._last_model_name,
+                    device=config_manager.get("whisper_device", "cuda"),
+                    compute_type=config_manager.get("compute_type", "float16"),
+                    language=config_manager.get("whisper_language") or None,
+                    study_notes=notes_markdown,
+                )
+            except Exception as e:
+                print(f"[Main] Error updating saved transcript with study notes: {e}")
+
+    def _on_study_notes_error(self, err_msg: str):
+        self._set_ui_processing_state(False)
+        self.status_label.setText("AI Study Guide generation failed.")
+        InfoBar.error(
+            title="AI Generation Error",
+            content=f"Failed to generate study guide: {err_msg[:250]}",
+            isClosable=True,
+            duration=10000,
+            position=InfoBarPosition.TOP,
+            parent=self,
+        )
 
     def _open_transcripts_folder(self):
         """Open ~/.notion_transcribe/transcripts/ in file explorer."""

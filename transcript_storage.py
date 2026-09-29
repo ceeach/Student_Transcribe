@@ -158,6 +158,7 @@ def save_transcript(
     duration_seconds: float = 0.0,
     language: Optional[str] = None,
     notion_info: Optional[Dict[str, Any]] = None,
+    study_notes: Optional[str] = None,
 ) -> Tuple[str, str]:
     """Save transcript data to JSON and human-readable TXT files.
 
@@ -194,6 +195,7 @@ def save_transcript(
         "speaker_count": len(unique_speakers),
         "speakers": unique_speakers,
         "full_text": full_text,
+        "study_notes": study_notes or "",
         "segments": segments,
         "notion": notion_info or {
             "pushed": False,
@@ -402,3 +404,40 @@ def export_to_markdown(
 
     with open(output_path, "w", encoding="utf-8") as f:
         f.write("\n".join(md_lines))
+
+
+def export_to_notebooklm(
+    audio_path: str,
+    segments: List[Dict[str, Any]],
+    full_text: str,
+    output_path: str,
+    study_notes: str = "",
+    metadata: Optional[Dict[str, Any]] = None,
+) -> None:
+    """Export transcript and study guide specifically structured for NotebookLM source ingestion."""
+    meta = metadata or {}
+    audio_fname = Path(audio_path).name if audio_path else "Lecture Recording"
+    title = meta.get("title", f"Lecture: {Path(audio_fname).stem}")
+    date_str = meta.get("date", datetime.now().strftime("%Y-%m-%d %H:%M"))
+    model = meta.get("model", "Whisper")
+    tags = meta.get("tags", "Education, Lecture")
+    duration = meta.get("duration", "--:--")
+
+    unique_speakers = list(dict.fromkeys(s.get("speaker", "Speaker 1") for s in segments if "speaker" in s))
+    speaker_count = len(unique_speakers) or 1
+
+    from ai_service import AIService
+    content = AIService.format_for_notebooklm(
+        title=title,
+        date=date_str,
+        duration=duration,
+        model=model,
+        speakers=speaker_count,
+        tags=tags,
+        summary=study_notes,
+        transcript=full_text,
+    )
+
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(content)
+

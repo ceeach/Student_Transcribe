@@ -41,6 +41,8 @@ all_hiddenimports = [
     'benchmark',
     'ui.benchmark_dialog',
     'transcript_storage',
+    'ai_service',
+    'ai_worker',
     'qfluentwidgets',
     'qframelesswindow',
     'darkdetect',

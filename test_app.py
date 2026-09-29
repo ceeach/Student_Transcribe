@@ -888,6 +888,7 @@ class TestTranscriptStorage(unittest.TestCase):
             audio_path=self.audio_path,
             segments=self.sample_segments,
             full_text=self.full_text,
+            study_notes="# Test Notes\n- Question: What is DNA?\n  Answer: Genetic material.",
         )
 
         with patch("notion_service.NotionService.test_connection", return_value=(False, "offline")):
@@ -895,11 +896,80 @@ class TestTranscriptStorage(unittest.TestCase):
             win._on_recording_loaded(self.audio_path)
             self.assertEqual(len(win._transcribed_segments), 2)
             self.assertTrue(win.push_only_btn.isEnabled())
+            self.assertTrue(win.study_guide_btn.isEnabled())
             self.assertTrue(win.export_btn.isEnabled())
             self.assertIn("Hello and welcome.", win.output_text.toPlainText())
+            self.assertIn("What is DNA?", win.study_notes_text.toPlainText())
             self.assertIn("Loaded saved transcript", win.status_label.text())
             win.close()
 
 
+class TestAIStudyAssistantAndNotebookLM(unittest.TestCase):
+    """Test AI Study Guide generation and NotebookLM export features."""
+
+    def test_notebooklm_formatting(self):
+        from ai_service import AIService
+        formatted = AIService.format_for_notebooklm(
+            title="Bio 101 Lecture",
+            date="2026-09-29 10:00",
+            duration="45:00",
+            model="medium",
+            speakers=2,
+            tags="Biology, Pre-Med",
+            summary="This lecture covered cellular respiration and glycolysis.",
+            transcript="[00:00 - 00:10] Welcome to biology class.",
+        )
+        self.assertIn("# Source: Bio 101 Lecture", formatted)
+        self.assertIn("Bio 101 Lecture", formatted)
+        self.assertIn("cellular respiration", formatted)
+        self.assertIn("Welcome to biology class", formatted)
+
+    def test_notion_study_notes_block_parser(self):
+        from notion_service import NotionService
+        service = NotionService(token="secret_test", database_id="fake_db")
+        md_text = (
+            "# 📌 1. Lecture Overview\n"
+            "This is the summary of the class.\n\n"
+            "## 🧠 2. Key Concepts\n"
+            "- Term: Mitochondria power house\n\n"
+            "- Question: What is ATP?\n"
+            "  Answer: Cellular energy currency.\n"
+        )
+        blocks = service.build_study_notes_blocks(md_text)
+        self.assertGreaterEqual(len(blocks), 4)
+
+        # Check heading 1
+        h1 = [b for b in blocks if b["type"] == "heading_1"]
+        self.assertEqual(len(h1), 1)
+        self.assertIn("Lecture Overview", h1[0]["heading_1"]["rich_text"][0]["text"]["content"])
+
+        # Check toggle flashcard
+        toggles = [b for b in blocks if b["type"] == "toggle"]
+        self.assertEqual(len(toggles), 1)
+        self.assertIn("What is ATP?", toggles[0]["toggle"]["rich_text"][1]["text"]["content"])
+        self.assertIn("Cellular energy currency", toggles[0]["toggle"]["children"][0]["paragraph"]["rich_text"][0]["text"]["content"])
+
+    def test_export_to_notebooklm_file(self):
+        import tempfile
+        from pathlib import Path
+        from transcript_storage import export_to_notebooklm
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            out_file = Path(tmp_dir) / "lecture_notebooklm.md"
+            segments = [{"start": 0.0, "end": 5.0, "text": "Hello students."}]
+            export_to_notebooklm(
+                audio_path="test.mp3",
+                segments=segments,
+                full_text="Hello students.",
+                output_path=str(out_file),
+                study_notes="Core concept: Introduction",
+            )
+            self.assertTrue(out_file.exists())
+            content = out_file.read_text(encoding="utf-8")
+            self.assertIn("Core concept: Introduction", content)
+            self.assertIn("Hello students.", content)
+
+
 if __name__ == "__main__":
     unittest.main()
+

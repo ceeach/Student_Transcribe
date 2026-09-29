@@ -277,6 +277,75 @@ class SettingsDialog(QDialog):
 
         main_layout.addWidget(diar_card)
 
+        # 6. AI Study Assistant Group (Google Gemini & Ollama)
+        ai_card = CardWidget(self)
+        ai_layout = QVBoxLayout(ai_card)
+        ai_layout.setSpacing(12)
+
+        ai_title = SubtitleLabel("AI Study Assistant (Gemini & Ollama)", self)
+        ai_layout.addWidget(ai_title)
+
+        ai_desc = BodyLabel(
+            "Automatically converts lecture transcripts into high-yield educational study guides, "
+            "active recall flashcards, and NotebookLM-ready source documents.",
+            self,
+        )
+        ai_desc.setWordWrap(True)
+        ai_layout.addWidget(ai_desc)
+
+        # AI Provider
+        self.ai_provider_combo = ComboBox(self)
+        self.ai_provider_combo.addItem("✨ Google Gemini API (Cloud / Free Tier)", userData="gemini")
+        self.ai_provider_combo.addItem("🦙 Local Ollama (100% Offline)", userData="ollama")
+        self.ai_provider_combo.currentIndexChanged.connect(self._on_ai_provider_changed)
+        ai_layout.addLayout(self._create_form_row("AI Provider:", self.ai_provider_combo))
+
+        # Gemini settings container
+        self.gemini_widget = QWidget(self)
+        gemini_layout = QVBoxLayout(self.gemini_widget)
+        gemini_layout.setContentsMargins(0, 0, 0, 0)
+        gemini_layout.setSpacing(8)
+
+        self.gemini_key_input = PasswordLineEdit(self)
+        self.gemini_key_input.setPlaceholderText("AIzaSy...")
+        gemini_layout.addLayout(self._create_form_row("Gemini API Key:", self.gemini_key_input, "Get a free API key at aistudio.google.com"))
+
+        self.gemini_model_combo = ComboBox(self)
+        self.gemini_model_combo.addItems(["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash"])
+        gemini_layout.addLayout(self._create_form_row("Gemini Model:", self.gemini_model_combo, "gemini-1.5-flash is fast with 1M context. gemini-1.5-pro has deep conceptual reasoning."))
+        ai_layout.addWidget(self.gemini_widget)
+
+        # Ollama settings container
+        self.ollama_widget = QWidget(self)
+        ollama_layout = QVBoxLayout(self.ollama_widget)
+        ollama_layout.setContentsMargins(0, 0, 0, 0)
+        ollama_layout.setSpacing(8)
+
+        self.ollama_host_input = LineEdit(self)
+        self.ollama_host_input.setPlaceholderText("http://localhost:11434")
+        ollama_layout.addLayout(self._create_form_row("Ollama Host:", self.ollama_host_input, "URL of your local or remote Ollama server (default http://localhost:11434)"))
+
+        self.ollama_model_input = LineEdit(self)
+        self.ollama_model_input.setPlaceholderText("llama3.2")
+        ollama_layout.addLayout(self._create_form_row("Ollama Model:", self.ollama_model_input, "Name of the Ollama model, e.g. llama3.2, qwen2.5, mistral"))
+
+        self.ollama_key_input = PasswordLineEdit(self)
+        self.ollama_key_input.setPlaceholderText("(Optional Bearer Token)")
+        ollama_layout.addLayout(self._create_form_row("Ollama API Key:", self.ollama_key_input, "Optional token if your Ollama instance is behind a proxy or requires auth."))
+        ai_layout.addWidget(self.ollama_widget)
+
+        # Test AI connection button
+        ai_test_row = QHBoxLayout()
+        self.test_ai_btn = PushButton("⚡ Test AI Connection", self)
+        self.test_ai_btn.clicked.connect(self._run_ai_test)
+        self.test_ai_status_label = BodyLabel("", self)
+        self.test_ai_status_label.setWordWrap(True)
+        ai_test_row.addWidget(self.test_ai_btn)
+        ai_test_row.addWidget(self.test_ai_status_label, 1)
+        ai_layout.addLayout(ai_test_row)
+
+        main_layout.addWidget(ai_card)
+
         # Dialog Buttons
         button_layout = QHBoxLayout()
         button_layout.addStretch(1)
@@ -363,6 +432,64 @@ class SettingsDialog(QDialog):
                 self.beam_combo.setCurrentIndex(i)
                 break
 
+        # AI Study Assistant settings
+        saved_provider = config_manager.get("ai_provider", "gemini")
+        for i in range(self.ai_provider_combo.count()):
+            if self.ai_provider_combo.itemData(i) == saved_provider:
+                self.ai_provider_combo.setCurrentIndex(i)
+                break
+        self._on_ai_provider_changed()
+
+        self.gemini_key_input.setText(config_manager.get("gemini_api_key", ""))
+        saved_gemini_model = config_manager.get("gemini_model", "gemini-1.5-flash")
+        idx = self.gemini_model_combo.findText(saved_gemini_model)
+        if idx >= 0:
+            self.gemini_model_combo.setCurrentIndex(idx)
+
+        self.ollama_host_input.setText(config_manager.get("ollama_host", "http://localhost:11434"))
+        self.ollama_model_input.setText(config_manager.get("ollama_model", "llama3.2"))
+        self.ollama_key_input.setText(config_manager.get("ollama_api_key", ""))
+
+    def _on_ai_provider_changed(self):
+        provider = self.ai_provider_combo.currentData() or "gemini"
+        if provider == "gemini":
+            self.gemini_widget.setVisible(True)
+            self.ollama_widget.setVisible(False)
+        else:
+            self.gemini_widget.setVisible(False)
+            self.ollama_widget.setVisible(True)
+
+    def _run_ai_test(self):
+        provider = self.ai_provider_combo.currentData() or "gemini"
+        self.test_ai_btn.setEnabled(False)
+        self.test_ai_status_label.setText("⏳ Testing AI connection...")
+
+        from ai_service import AIService
+        try:
+            if provider == "gemini":
+                key = self.gemini_key_input.text().strip()
+                if not key:
+                    self.test_ai_status_label.setText("⚠️ Enter Gemini API Key first.")
+                    self.test_ai_btn.setEnabled(True)
+                    return
+                model = self.gemini_model_combo.currentText()
+                test_resp = AIService.generate_study_notes_gemini("Hello test lecture.", key, model)
+                if test_resp:
+                    self.test_ai_status_label.setText("✅ Google Gemini connected successfully!")
+                else:
+                    self.test_ai_status_label.setText("❌ Empty response from Gemini.")
+            else:
+                host = self.ollama_host_input.text().strip() or "http://localhost:11434"
+                models = AIService.get_ollama_models(host)
+                if models:
+                    self.test_ai_status_label.setText(f"✅ Ollama connected! ({len(models)} models available)")
+                else:
+                    self.test_ai_status_label.setText("⚠️ Connected to Ollama, but no models found.")
+        except Exception as e:
+            self.test_ai_status_label.setText(f"❌ {e}")
+        finally:
+            self.test_ai_btn.setEnabled(True)
+
     def _open_benchmark_dialog(self):
         dlg = BenchmarkDialog(self)
         dlg.settings_applied.connect(lambda _: self._load_values())
@@ -418,6 +545,12 @@ class SettingsDialog(QDialog):
             "enable_diarization": self.enable_diarization_cb.isChecked(),
             "num_speakers": self.num_speakers_combo.currentData(),
             "beam_size": self.beam_combo.currentData() or 1,
+            "ai_provider": self.ai_provider_combo.currentData() or "gemini",
+            "gemini_api_key": self.gemini_key_input.text().strip(),
+            "gemini_model": self.gemini_model_combo.currentText(),
+            "ollama_host": self.ollama_host_input.text().strip(),
+            "ollama_model": self.ollama_model_input.text().strip(),
+            "ollama_api_key": self.ollama_key_input.text().strip(),
         }
 
         saved = config_manager.save(new_settings)

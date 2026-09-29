@@ -264,6 +264,118 @@ class NotionService:
 
         return blocks
 
+    def build_study_notes_blocks(self, markdown_text: str) -> List[Dict[str, Any]]:
+        """Parse structured study notes markdown into rich Notion blocks (headings, callouts, toggles, bullets)."""
+        if not markdown_text or not markdown_text.strip():
+            return []
+
+        blocks: List[Dict[str, Any]] = []
+        lines = markdown_text.strip().split("\n")
+        i = 0
+
+        while i < len(lines):
+            line = lines[i].strip()
+            if not line:
+                i += 1
+                continue
+
+            # Heading 1
+            if line.startswith("# "):
+                content = line[2:].strip()
+                blocks.append({
+                    "object": "block",
+                    "type": "heading_1",
+                    "heading_1": {
+                        "rich_text": [{"type": "text", "text": {"content": content[:1900]}}],
+                        "color": "blue_background",
+                    },
+                })
+                i += 1
+                continue
+
+            # Heading 2
+            if line.startswith("## "):
+                content = line[3:].strip()
+                blocks.append({
+                    "object": "block",
+                    "type": "heading_2",
+                    "heading_2": {
+                        "rich_text": [{"type": "text", "text": {"content": content[:1900]}}],
+                    },
+                })
+                i += 1
+                continue
+
+            # Heading 3
+            if line.startswith("### "):
+                content = line[4:].strip()
+                blocks.append({
+                    "object": "block",
+                    "type": "heading_3",
+                    "heading_3": {
+                        "rich_text": [{"type": "text", "text": {"content": content[:1900]}}],
+                    },
+                })
+                i += 1
+                continue
+
+            # Flashcard Active Recall Toggle Pattern: "- Question: ... \n Answer: ..."
+            if line.startswith("- Question:") or line.startswith("Question:"):
+                q_text = line.split(":", 1)[1].strip()
+                ans_text = ""
+                if i + 1 < len(lines) and ("Answer:" in lines[i + 1] or "answer:" in lines[i + 1]):
+                    ans_text = lines[i + 1].split(":", 1)[1].strip()
+                    i += 1
+                
+                blocks.append({
+                    "object": "block",
+                    "type": "toggle",
+                    "toggle": {
+                        "rich_text": [
+                            {"type": "text", "text": {"content": "❓ "}},
+                            {"type": "text", "text": {"content": q_text[:1890]}, "annotations": {"bold": True}},
+                        ],
+                        "children": [
+                            {
+                                "object": "block",
+                                "type": "paragraph",
+                                "paragraph": {
+                                    "rich_text": [
+                                        {"type": "text", "text": {"content": ans_text or "(No answer provided)"}, "annotations": {"color": "green"}}
+                                    ]
+                                }
+                            }
+                        ]
+                    }
+                })
+                i += 1
+                continue
+
+            # Bulleted List
+            if line.startswith("- ") or line.startswith("* "):
+                bullet_content = line[2:].strip()
+                blocks.append({
+                    "object": "block",
+                    "type": "bulleted_list_item",
+                    "bulleted_list_item": {
+                        "rich_text": [{"type": "text", "text": {"content": bullet_content[:1900]}}],
+                    }
+                })
+                i += 1
+                continue
+
+            # Regular Paragraph
+            blocks.append({
+                "object": "block",
+                "type": "paragraph",
+                "paragraph": {
+                    "rich_text": [{"type": "text", "text": {"content": line[:1900]}}],
+                }
+            })
+            i += 1
+
+        return blocks
+
     def create_transcript_page(
         self,
         title: str,
@@ -373,6 +485,23 @@ class NotionService:
                     ],
                 },
             })
+
+        # Optional AI Study Guide blocks
+        study_notes = metadata.get("study_notes") if metadata else None
+        if study_notes:
+            study_blocks = self.build_study_notes_blocks(study_notes)
+            if study_blocks:
+                children_blocks.append({"object": "block", "type": "divider", "divider": {}})
+                children_blocks.append({
+                    "object": "block",
+                    "type": "heading_1",
+                    "heading_1": {
+                        "rich_text": [{"type": "text", "text": {"content": "📚 AI Study Guide & Active Recall"}}],
+                        "color": "yellow_background",
+                    },
+                })
+                children_blocks.extend(study_blocks)
+                children_blocks.append({"object": "block", "type": "divider", "divider": {}})
 
         # Heading 2: "Transcript"
         children_blocks.append({
@@ -584,6 +713,23 @@ class NotionService:
                     ],
                 },
             })
+
+        # Optional AI Study Guide blocks
+        study_notes = metadata.get("study_notes") if metadata else None
+        if study_notes:
+            study_blocks = self.build_study_notes_blocks(study_notes)
+            if study_blocks:
+                blocks.append({"object": "block", "type": "divider", "divider": {}})
+                blocks.append({
+                    "object": "block",
+                    "type": "heading_1",
+                    "heading_1": {
+                        "rich_text": [{"type": "text", "text": {"content": "📚 AI Study Guide & Active Recall"}}],
+                        "color": "yellow_background",
+                    },
+                })
+                blocks.extend(study_blocks)
+                blocks.append({"object": "block", "type": "divider", "divider": {}})
 
         # Paragraph blocks
         paragraph_blocks = self.build_paragraph_blocks(segments)

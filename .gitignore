@@ -1,0 +1,59 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# PyInstaller
+*.manifest
+*.spec.bak
+
+# Inno Setup output
+output/
+_internal/
+
+# NotionTranscribe runtime & local user data
+.notion_transcribe/
+recordings/
+transcripts/
+*.wav
+*.mp3
+*.m4a
+*.ogg
+*.flac
+*.mp4
+*.mkv
+*.mov
+*.avi
+config.json
+
+# Environment / Keys
+.env
+.env.local
+
+# IDE & OS
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+.DS_Store
+Thumbs.db

@@ -34,9 +34,12 @@ Write-Host "[OK] PyInstaller compilation succeeded!" -ForegroundColor Green
 Write-Host ""
 Write-Host "[3/4] Locating Inno Setup compiler..." -ForegroundColor Yellow
 $IsccPaths = @(
+    "$env:LOCALAPPDATA\Programs\Inno Setup 7\ISCC.exe",
     "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe",
-    "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
-    "C:\Program Files\Inno Setup 6\ISCC.exe"
+    "C:\Program Files\Inno Setup 7\ISCC.exe",
+    "C:\Program Files (x86)\Inno Setup 7\ISCC.exe",
+    "C:\Program Files\Inno Setup 6\ISCC.exe",
+    "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
 )
 
 $IsccExe = $null
@@ -61,7 +64,7 @@ Write-Host "[4/4] Compiling Windows Setup Installer (.exe)..." -ForegroundColor 
 New-Item -ItemType Directory -Force -Path "output" | Out-Null
 & $IsccExe "installer.iss"
 
-$InstallerPath = "output\NotionTranscribe-Setup-v1.0.exe"
+$InstallerPath = "output\NotionTranscribe-Setup-v1.1.exe"
 if (Test-Path $InstallerPath) {
     $SizeMB = [math]::Round((Get-Item $InstallerPath).Length / 1MB, 2)
     Write-Host ""

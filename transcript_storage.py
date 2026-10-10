@@ -287,7 +287,7 @@ def update_transcript_notion_info(
 
 
 def delete_transcript(audio_path: str) -> bool:
-    """Delete all local transcript files (.json and .txt) associated with audio_path."""
+    """Delete all local transcript files (.json, .txt, and .notes.txt) associated with audio_path."""
     deleted_any = False
     audio_p = Path(audio_path)
     stem = audio_p.stem
@@ -309,7 +309,71 @@ def delete_transcript(audio_path: str) -> bool:
             except Exception:
                 pass
 
+    # Clean up companion notes file
+    notes_candidate = audio_p.parent / f"{stem}.notes.txt"
+    if notes_candidate.is_file():
+        try:
+            notes_candidate.unlink(missing_ok=True)
+            deleted_any = True
+        except Exception:
+            pass
+
     return deleted_any
+
+
+def get_recording_notes(audio_path: str) -> str:
+    """Retrieve saved personal user notes for a recording."""
+    if not audio_path:
+        return ""
+    audio_p = Path(audio_path)
+
+    # 1. Check sidecar .notes.txt file first
+    notes_file = audio_p.parent / f"{audio_p.stem}.notes.txt"
+    if notes_file.is_file():
+        try:
+            return notes_file.read_text(encoding="utf-8").strip()
+        except Exception:
+            pass
+
+    # 2. Check transcript JSON for 'user_notes'
+    tr_data = load_transcript(audio_path)
+    if tr_data and tr_data.get("user_notes"):
+        return str(tr_data["user_notes"]).strip()
+
+    return ""
+
+
+def save_recording_notes(audio_path: str, notes: str) -> bool:
+    """Save personal user notes for a recording to sidecar .notes.txt and transcript JSON."""
+    if not audio_path:
+        return False
+    audio_p = Path(audio_path)
+    notes_clean = notes.strip()
+
+    # 1. Write or remove sidecar .notes.txt file
+    try:
+        notes_file = audio_p.parent / f"{audio_p.stem}.notes.txt"
+        if notes_clean:
+            notes_file.write_text(notes_clean, encoding="utf-8")
+        elif notes_file.exists():
+            notes_file.unlink()
+    except Exception as e:
+        print(f"[TranscriptStorage] Failed to save notes file: {e}")
+
+    # 2. Update transcript JSON if it exists
+    tr_path = find_transcript_file(audio_path)
+    if tr_path and tr_path.is_file():
+        try:
+            with open(tr_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            data["user_notes"] = notes_clean
+            data["updated_at"] = datetime.now().isoformat()
+            with open(tr_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            print(f"[TranscriptStorage] Failed to update user_notes in JSON: {e}")
+
+    return True
 
 
 def export_to_srt(segments: List[Dict[str, Any]], output_path: str) -> None:

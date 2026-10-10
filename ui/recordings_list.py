@@ -1,8 +1,8 @@
 """Recordings List Widget for NotionTranscribe.
 
 Displays an in-app list/table of past audio recordings saved in
-~/.notion_transcribe/recordings/ with date, duration, size, and one-click
-loading for transcription.
+~/.notion_transcribe/recordings/ with date, duration, size, transcript status,
+and a dedicated interactive notes editor panel for recording annotations.
 """
 
 from datetime import datetime
@@ -17,11 +17,12 @@ try:
 except ImportError:
     sf = None
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
+    QSplitter,
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
@@ -29,21 +30,29 @@ from PyQt6.QtWidgets import (
 )
 
 from qfluentwidgets import (
-    PushButton,
-    PrimaryPushButton,
-    SubtitleLabel,
+    BodyLabel,
     CaptionLabel,
+    CardWidget,
+    MessageBox,
+    PrimaryPushButton,
+    PushButton,
+    SubtitleLabel,
     TableWidget,
-    MessageBox
+    TextEdit,
 )
 
 from audio_recorder import RECORDINGS_DIR
+from logger import get_logger, open_log_file
 from transcript_storage import (
     delete_transcript,
+    get_recording_notes,
     has_transcript,
     load_transcript,
+    save_recording_notes,
 )
 from ui.drop_zone import format_file_size
+
+logger = get_logger("RecordingsList")
 
 
 def format_duration(seconds: float) -> str:
@@ -57,12 +66,21 @@ def format_duration(seconds: float) -> str:
 
 
 class RecordingsListWidget(QWidget):
-    """Widget displaying a browsable table of previous recordings."""
+    """Widget displaying a browsable table of previous recordings with side notes panel."""
 
     recording_selected = pyqtSignal(str)  # Emits file path to load
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._current_selected_path: Optional[str] = None
+        self._is_populating_notes = False
+
+        # Debounced auto-save timer for notes
+        self._notes_autosave_timer = QTimer(self)
+        self._notes_autosave_timer.setSingleShot(True)
+        self._notes_autosave_timer.setInterval(800)  # 800ms debounce
+        self._notes_autosave_timer.timeout.connect(self._save_current_notes)
+
         self._init_ui()
         self.refresh()
 
@@ -73,8 +91,14 @@ class RecordingsListWidget(QWidget):
 
         # Top Toolbar
         top_bar = QHBoxLayout()
-        title_label = SubtitleLabel("Recorded Audio Archive", self)
+        title_label = SubtitleLabel("Recorded Audio Archive & History", self)
         top_bar.addWidget(title_label, 1)
+
+        self.view_logs_btn = PushButton("📋 View App Logs", self)
+        self.view_logs_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.view_logs_btn.setToolTip("Open diagnostic log file (useful for troubleshooting crashes or errors)")
+        self.view_logs_btn.clicked.connect(self._open_logs)
+        top_bar.addWidget(self.view_logs_btn)
 
         self.refresh_btn = PushButton("🔄 Refresh", self)
         self.refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -88,23 +112,75 @@ class RecordingsListWidget(QWidget):
 
         layout.addLayout(top_bar)
 
-        # Recordings Table
+        # Horizontal Splitter between Recordings Table and Notes Editor Card
+        splitter = QSplitter(Qt.Orientation.Horizontal, self)
+        splitter.setChildrenCollapsible(False)
+
+        # --- Left Side: Recordings Table ---
+        table_container = QWidget(self)
+        table_layout = QVBoxLayout(table_container)
+        table_layout.setContentsMargins(0, 0, 0, 0)
+        table_layout.setSpacing(6)
+
         self.table = TableWidget(self)
-        self.table.setColumnCount(5)
+        self.table.setColumnCount(6)
         self.table.setHorizontalHeaderLabels([
-            "Recording Name", "Date Recorded", "Duration", "File Size", "Transcript Status"
+            "Recording Name", "Date Recorded", "Duration", "File Size", "Transcript Status", "Notes Preview"
         ])
-        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
+        self.table.horizontalHeader().resizeSection(0, 180)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
+
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.itemDoubleClicked.connect(self._on_item_double_clicked)
         self.table.itemSelectionChanged.connect(self._on_selection_changed)
-        layout.addWidget(self.table)
+        table_layout.addWidget(self.table)
+
+        splitter.addWidget(table_container)
+
+        # --- Right Side: Notes Editor Panel ---
+        self.notes_card = CardWidget(self)
+        notes_layout = QVBoxLayout(self.notes_card)
+        notes_layout.setContentsMargins(14, 12, 14, 12)
+        notes_layout.setSpacing(8)
+
+        notes_header = QHBoxLayout()
+        notes_header_title = SubtitleLabel("📝 Recording Notes", self)
+        notes_header.addWidget(notes_header_title, 1)
+
+        self.save_notes_btn = PushButton("💾 Save", self)
+        self.save_notes_btn.setEnabled(False)
+        self.save_notes_btn.clicked.connect(self._save_current_notes)
+        notes_header.addWidget(self.save_notes_btn)
+        notes_layout.addLayout(notes_header)
+
+        self.notes_target_label = CaptionLabel("Select a recording to view or write notes.", self)
+        self.notes_target_label.setWordWrap(True)
+        notes_layout.addWidget(self.notes_target_label)
+
+        self.notes_edit = TextEdit(self)
+        self.notes_edit.setPlaceholderText(
+            "Add personal notes, lecture reminders, action items, or context for this recording...\n\n"
+            "Notes auto-save as you type and persist with your recording history."
+        )
+        self.notes_edit.setEnabled(False)
+        self.notes_edit.textChanged.connect(self._on_notes_text_changed)
+        notes_layout.addWidget(self.notes_edit, 1)
+
+        self.notes_status_label = CaptionLabel("", self)
+        notes_layout.addWidget(self.notes_status_label)
+
+        splitter.addWidget(self.notes_card)
+
+        # 60% table, 40% notes panel
+        splitter.setSizes([600, 360])
+        layout.addWidget(splitter, 1)
 
         # Bottom Action Bar
         bottom_bar = QHBoxLayout()
@@ -149,7 +225,7 @@ class RecordingsListWidget(QWidget):
                 if p.is_file() and p.suffix.lower() in extensions:
                     files.append(p)
         except Exception as e:
-            print(f"[RecordingsList] Error reading recordings: {e}")
+            logger.error(f"Error reading recordings from {RECORDINGS_DIR}: {e}")
 
         # Sort newest first
         files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
@@ -210,11 +286,23 @@ class RecordingsListWidget(QWidget):
                 item_tr.setToolTip("Audio has not been transcribed yet.")
             item_tr.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
 
+            # Check for user notes
+            notes_str = get_recording_notes(str(fpath))
+            if notes_str:
+                first_line = notes_str.split("\n", 1)[0].strip()
+                preview = (first_line[:40] + "...") if len(first_line) > 40 else first_line
+                item_notes = QTableWidgetItem(f"📝 {preview}")
+                item_notes.setToolTip(notes_str)
+            else:
+                item_notes = QTableWidgetItem("—")
+                item_notes.setForeground(QColor("#64748b"))
+
             self.table.setItem(row, 0, item_name)
             self.table.setItem(row, 1, item_date)
             self.table.setItem(row, 2, item_duration)
             self.table.setItem(row, 3, item_size)
             self.table.setItem(row, 4, item_tr)
+            self.table.setItem(row, 5, item_notes)
 
         self.count_label.setText(f"{len(files)} recording(s) in archive")
         self._on_selection_changed()
@@ -241,6 +329,56 @@ class RecordingsListWidget(QWidget):
             self.load_btn.setText("⚡ Load Recording & Transcript")
         else:
             self.load_btn.setText("⚡ Load for Transcription")
+
+        # Update notes panel for newly selected recording
+        self._current_selected_path = path
+        if path and os.path.exists(path):
+            fname = os.path.basename(path)
+            self.notes_target_label.setText(f"Notes for: {fname}")
+            self.notes_edit.setEnabled(True)
+            self.save_notes_btn.setEnabled(True)
+
+            self._is_populating_notes = True
+            current_notes = get_recording_notes(path)
+            self.notes_edit.setPlainText(current_notes)
+            self._is_populating_notes = False
+            self.notes_status_label.setText(f"Loaded notes ({len(current_notes)} chars)")
+        else:
+            self.notes_target_label.setText("Select a recording to view or write notes.")
+            self.notes_edit.setEnabled(False)
+            self.save_notes_btn.setEnabled(False)
+            self._is_populating_notes = True
+            self.notes_edit.clear()
+            self._is_populating_notes = False
+            self.notes_status_label.setText("")
+
+    def _on_notes_text_changed(self):
+        if self._is_populating_notes or not self._current_selected_path:
+            return
+        self.notes_status_label.setText("Typing... (auto-saving)")
+        self._notes_autosave_timer.start()
+
+    def _save_current_notes(self):
+        if not self._current_selected_path:
+            return
+        text = self.notes_edit.toPlainText().strip()
+        saved = save_recording_notes(self._current_selected_path, text)
+        if saved:
+            self.notes_status_label.setText("Notes saved ✓")
+            # Update preview in current table row
+            curr_row = self.table.currentRow()
+            if curr_row >= 0:
+                if text:
+                    first_line = text.split("\n", 1)[0].strip()
+                    preview = (first_line[:40] + "...") if len(first_line) > 40 else first_line
+                    item_notes = QTableWidgetItem(f"📝 {preview}")
+                    item_notes.setToolTip(text)
+                else:
+                    item_notes = QTableWidgetItem("—")
+                    item_notes.setForeground(QColor("#64748b"))
+                self.table.setItem(curr_row, 5, item_notes)
+        else:
+            self.notes_status_label.setText("Failed to save notes")
 
     def _on_item_double_clicked(self, item: QTableWidgetItem):
         self._load_selected()
@@ -270,7 +408,6 @@ class RecordingsListWidget(QWidget):
             else:
                 subprocess.run(["xdg-open", str(txt_path)])
         else:
-            # Fallback to loading into the main app view
             self._load_selected()
 
     def _play_selected(self):
@@ -291,7 +428,7 @@ class RecordingsListWidget(QWidget):
         fname = os.path.basename(path)
         w = MessageBox(
             "Delete Recording",
-            f"Are you sure you want to permanently delete:\n{fname}\n(This will also remove any saved local transcripts)?",
+            f"Are you sure you want to permanently delete:\n{fname}\n\n(This will also remove any saved transcripts and companion notes)?",
             self
         )
         w.yesButton.setText('Delete')
@@ -312,3 +449,7 @@ class RecordingsListWidget(QWidget):
             subprocess.run(["open", str(RECORDINGS_DIR)])
         else:
             subprocess.run(["xdg-open", str(RECORDINGS_DIR)])
+
+    def _open_logs(self):
+        """Open the app log file in default viewer."""
+        open_log_file()

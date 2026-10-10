@@ -871,11 +871,21 @@ class TestTranscriptStorage(unittest.TestCase):
 
         with patch("ui.recordings_list.RECORDINGS_DIR", Path(self.test_dir.name)):
             widget = RecordingsListWidget()
-            self.assertEqual(widget.table.columnCount(), 5)
+            self.assertEqual(widget.table.columnCount(), 6)
             self.assertEqual(widget.table.horizontalHeaderItem(4).text(), "Transcript Status")
+            self.assertEqual(widget.table.horizontalHeaderItem(5).text(), "Notes Preview")
             self.assertEqual(widget.table.rowCount(), 1)
             status_item = widget.table.item(0, 4)
             self.assertIn("Saved", status_item.text())
+
+            # Test notes integration
+            from transcript_storage import save_recording_notes, get_recording_notes
+            save_recording_notes(self.audio_path, "Lecture Exam Tip: Focus on Chapter 3")
+            self.assertEqual(get_recording_notes(self.audio_path), "Lecture Exam Tip: Focus on Chapter 3")
+            widget.refresh()
+            notes_item = widget.table.item(0, 5)
+            self.assertIn("Lecture Exam Tip", notes_item.text())
+
             widget.close()
 
     def test_main_window_loads_saved_transcript(self):

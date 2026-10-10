@@ -43,6 +43,7 @@ all_hiddenimports = [
     'transcript_storage',
     'ai_service',
     'ai_worker',
+    'logger',
     'qfluentwidgets',
     'qframelesswindow',
     'darkdetect',

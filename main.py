@@ -79,6 +79,7 @@ from ui.recordings_list import RecordingsListWidget
 from ui.settings_dialog import SettingsDialog
 from ui.video_tab import VideoTabWidget
 from video_watcher import VideoFolderWatcher
+from logger import setup_logging, open_log_file
 
 import subprocess
 
@@ -549,7 +550,7 @@ class MainWindow(FluentWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("NotionTranscribe")
+        self.setWindowTitle("NotionTranscribe v1.1.0")
         self.resize(960, 820)
         self.setMinimumSize(780, 680)
 
@@ -647,6 +648,16 @@ class MainWindow(FluentWindow):
             icon=FIF.SETTING,
             text="Settings",
             onClick=self._open_settings,
+            selectable=False,
+            position=NavigationItemPosition.BOTTOM,
+        )
+
+        # 4. Diagnostic Logs (bottom navigation)
+        self.navigationInterface.addItem(
+            routeKey="logs",
+            icon=FIF.DOCUMENT,
+            text="Logs",
+            onClick=self._open_logs,
             selectable=False,
             position=NavigationItemPosition.BOTTOM,
         )
@@ -1168,6 +1179,10 @@ class MainWindow(FluentWindow):
         dlg = SettingsDialog(self)
         dlg.settings_saved.connect(self._on_settings_saved)
         dlg.exec()
+
+    def _open_logs(self):
+        """Open the application diagnostics log file in default viewer."""
+        open_log_file()
 
     def _open_benchmark_dialog(self):
         from ui.benchmark_dialog import BenchmarkDialog
@@ -2101,11 +2116,14 @@ class MainWindow(FluentWindow):
 
 
 def main():
+    # Initialize rotating file logging, safe stream redirection, and crash diagnostics
+    setup_logging()
+
     # Set Windows AppUserModelID so taskbar displays the custom icon
     if sys.platform == "win32":
         try:
             import ctypes
-            myappid = "notiontranscribe.app.1.0"
+            myappid = "notiontranscribe.app.1.1.0"
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
         except Exception:
             pass

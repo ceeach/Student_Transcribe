@@ -348,6 +348,13 @@ class SettingsDialog(QDialog):
 
         # Dialog Buttons
         button_layout = QHBoxLayout()
+
+        from logger import open_log_file
+        self.logs_btn = PushButton("📋 View Logs", self)
+        self.logs_btn.setToolTip("Open diagnostic log file for error inspection")
+        self.logs_btn.clicked.connect(open_log_file)
+        button_layout.addWidget(self.logs_btn)
+
         button_layout.addStretch(1)
         
         self.cancel_btn = PushButton("Cancel", self)

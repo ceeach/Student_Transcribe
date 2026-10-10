@@ -550,7 +550,7 @@ class MainWindow(FluentWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("NotionTranscribe v1.1.0")
+        self.setWindowTitle("Transcribe Notion v1.1.0")
         self.resize(960, 820)
         self.setMinimumSize(780, 680)
 
@@ -2123,7 +2123,7 @@ def main():
     if sys.platform == "win32":
         try:
             import ctypes
-            myappid = "notiontranscribe.app.1.1.0"
+            myappid = "transcribenotion.app.1.1.0"
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
         except Exception:
             pass

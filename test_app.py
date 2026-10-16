@@ -447,7 +447,7 @@ class TestTargetPageDropdownUI(unittest.TestCase):
         self.assertTrue(win.title_input.isEnabled())
         self.assertFalse(win.tags_input.isEnabled())
         self.assertEqual(win.push_only_btn.text(), "Push (Append to Page)")
-        self.assertEqual(win.action_btn.text(), "⚡ Transcribe & Append to Page")
+        self.assertEqual(win.action_btn.text(), "Transcribe & Append to Page")
 
         # Select Create New Page again (index 0)
         win.target_page_combo.setCurrentIndex(0)
@@ -456,7 +456,7 @@ class TestTargetPageDropdownUI(unittest.TestCase):
         self.assertTrue(win.title_input.isEnabled())
         self.assertTrue(win.tags_input.isEnabled())
         self.assertEqual(win.push_only_btn.text(), "Push to Notion")
-        self.assertEqual(win.action_btn.text(), "⚡ Transcribe & Push to Notion")
+        self.assertEqual(win.action_btn.text(), "Transcribe & Push to Notion")
 
         # Test Audio Source Selector in Record Live tab
         self.assertEqual(win.source_mode_combo.count(), 3)
@@ -1146,7 +1146,75 @@ class TestSlideOCRAndJargonExtractor(unittest.TestCase):
             self.assertFalse(ti.action_bar_container.isHidden())
             ti.close()
 
+    def test_pdf_editor_tools_text_shapes_undo_export_and_wheel_nav(self):
+        import tempfile
+        from pathlib import Path
+        from PyQt6.QtWidgets import QApplication
+        import pymupdf as fitz
+        from ui.slide_viewer import SlideCompanionWidget
+
+        app = QApplication.instance() or QApplication(["test"])
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            pdf_path = Path(tmp_dir) / "editor_test.pdf"
+            doc = fitz.open()
+            for i in range(1, 4):
+                page = doc.new_page(width=800, height=500)
+                page.insert_text((60, 100), f"Slide {i}: Linear Algebra")
+            doc.save(str(pdf_path))
+            doc.close()
+
+            companion = SlideCompanionWidget()
+            self.assertTrue(companion.load_pdf(str(pdf_path)))
+
+            # Test switching editor tools (Highlighter, Text Input, Shapes, Move/Select, Eraser)
+            companion._select_editor_tool("highlighter")
+            self.assertEqual(companion.canvas._tool_mode, "highlighter")
+            companion._select_editor_tool("text")
+            self.assertEqual(companion.canvas._tool_mode, "text")
+            companion._select_editor_tool("rect")
+            self.assertEqual(companion.canvas._tool_mode, "rect")
+            companion._select_editor_tool("arrow")
+            self.assertEqual(companion.canvas._tool_mode, "arrow")
+
+            # Add on-slide text annotation programmatically
+            companion.canvas.add_text_annotation("Eigenvalue = lambda", 0.35, 0.45)
+            self.assertEqual(len(companion.canvas.get_strokes()), 1)
+            self.assertEqual(companion.canvas.get_strokes()[0]["mode"], "text")
+            self.assertEqual(companion.canvas.get_strokes()[0]["text"], "Eigenvalue = lambda")
+
+            # Test Undo & Redo
+            companion.canvas.undo_stroke()
+            self.assertEqual(len(companion.canvas.get_strokes()), 0)
+            companion.canvas.redo_stroke()
+            self.assertEqual(len(companion.canvas.get_strokes()), 1)
+
+            # Verify on-slide text appears in markdown summary
+            md_summary = companion.format_annotations_summary_markdown()
+            self.assertIn("Eigenvalue = lambda", md_summary)
+            self.assertIn("[On-Slide Text]", md_summary)
+
+            # Test Touchpad Wheel Slide Navigation (next & previous slide)
+            self.assertEqual(companion._preview_idx, 0)
+            companion.canvas.slide_wheel_navigated.emit(1)
+            self.assertEqual(companion._preview_idx, 1)
+            companion.canvas.slide_wheel_navigated.emit(1)
+            self.assertEqual(companion._preview_idx, 2)
+            companion.canvas.slide_wheel_navigated.emit(-1)
+            self.assertEqual(companion._preview_idx, 1)
+
+            # Test exporting annotated PDF and PNG
+            out_pdf = Path(tmp_dir) / "annotated_out.pdf"
+            out_png = Path(tmp_dir) / "annotated_slide.png"
+            self.assertTrue(companion.export_annotated_slides(str(out_pdf)))
+            self.assertTrue(out_pdf.exists())
+            self.assertTrue(companion.export_annotated_slides(str(out_png)))
+            self.assertTrue(out_png.exists())
+
+            companion.close()
+
 
 if __name__ == "__main__":
     unittest.main()
+
 

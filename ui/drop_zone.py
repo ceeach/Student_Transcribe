@@ -18,6 +18,8 @@ from PyQt6.QtWidgets import (
 
 from qfluentwidgets import (
     CardWidget,
+    FluentIcon as FIF,
+    IconWidget,
     SubtitleLabel,
     CaptionLabel,
     PushButton,
@@ -62,11 +64,11 @@ class DropZoneWidget(CardWidget):
         layout.setSpacing(10)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        self.icon_label = QLabel("🎵", self)
-        self.icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        font = self.icon_label.font()
-        font.setPointSize(36)
-        self.icon_label.setFont(font)
+        icon_row = QHBoxLayout()
+        icon_row.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.icon_widget = IconWidget(FIF.MUSIC, self)
+        self.icon_widget.setFixedSize(40, 40)
+        icon_row.addWidget(self.icon_widget)
 
         self.title_label = SubtitleLabel("Drag & drop your audio or video file here", self)
         self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -78,6 +80,7 @@ class DropZoneWidget(CardWidget):
         btn_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.browse_btn = PushButton("Browse Files...", self)
+        self.browse_btn.setIcon(FIF.FOLDER_ADD)
         self.browse_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.browse_btn.clicked.connect(self._open_file_dialog)
         btn_layout.addWidget(self.browse_btn)
@@ -86,7 +89,7 @@ class DropZoneWidget(CardWidget):
         self.file_info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.file_info_label.setWordWrap(True)
 
-        layout.addWidget(self.icon_label)
+        layout.addLayout(icon_row)
         layout.addWidget(self.title_label)
         layout.addWidget(self.subtitle_label)
         layout.addLayout(btn_layout)
@@ -128,13 +131,13 @@ class DropZoneWidget(CardWidget):
         size = format_file_size(os.path.getsize(file_path))
 
         if is_video_file(file_path):
-            self.icon_label.setText("🎬")
+            self.icon_widget.setIcon(FIF.MOVIE)
             self.title_label.setText(f"Selected Video: {filename}")
             self.file_info_label.setText(f"Video ready for extraction & transcription ({size})")
             self._update_style()
             self.video_dropped.emit(file_path)
         else:
-            self.icon_label.setText("🎵")
+            self.icon_widget.setIcon(FIF.MUSIC)
             self.title_label.setText(f"Selected Audio: {filename}")
             self.file_info_label.setText(f"Path: {file_path} ({size})")
             self._update_style()
@@ -143,7 +146,7 @@ class DropZoneWidget(CardWidget):
     def clear(self):
         """Clear currently selected file."""
         self._selected_path = None
-        self.icon_label.setText("🎵")
+        self.icon_widget.setIcon(FIF.MUSIC)
         self.title_label.setText("Drag & drop your audio or video file here")
         self.file_info_label.setText("")
         self._update_style()

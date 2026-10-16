@@ -229,10 +229,10 @@ class TranscribeInterface(QWidget):
         self.slide_companion.setObjectName("slidesPage")
 
         # Add to stack and pivot (escape && so Qt does not treat & as an underline mnemonic)
-        self._add_pivot_page(self.record_page, "recordPage", "🎙 Record Live")
-        self._add_pivot_page(self.upload_page, "uploadPage", "📁 Upload File")
-        self._add_pivot_page(self.video_tab, "videoPage", "📹 Video Inbox")
-        self._add_pivot_page(self.slide_companion, "slidesPage", "📊 Class Slides && Annotate")
+        self._add_pivot_page(self.record_page, "recordPage", "Record Live", icon=FIF.MICROPHONE)
+        self._add_pivot_page(self.upload_page, "uploadPage", "Upload File", icon=FIF.FOLDER)
+        self._add_pivot_page(self.video_tab, "videoPage", "Video Inbox", icon=FIF.VIDEO)
+        self._add_pivot_page(self.slide_companion, "slidesPage", "Class Slides && Annotate", icon=FIF.ALBUM)
 
         self.pivot.setCurrentItem("recordPage")
         self.stacked_widget.setCurrentWidget(self.record_page)
@@ -252,12 +252,13 @@ class TranscribeInterface(QWidget):
         # ---- Action Bar ----
         self._create_action_bar(self.main_layout)
 
-    def _add_pivot_page(self, widget, route_key, text):
+    def _add_pivot_page(self, widget, route_key, text, icon=None):
         self.stacked_widget.addWidget(widget)
         self.pivot.addItem(
             routeKey=route_key,
             text=text,
             onClick=lambda: self._activate_pivot_subpage(widget, route_key),
+            icon=icon,
         )
 
     def _activate_pivot_subpage(self, widget: QWidget, route_key: str):
@@ -302,9 +303,9 @@ class TranscribeInterface(QWidget):
         source_row.addWidget(source_label)
 
         self.source_mode_combo = ComboBox(self)
-        self.source_mode_combo.addItem("🎙 Microphone Only", userData="mic")
-        self.source_mode_combo.addItem("🔊 System Audio Only (Speakers Loopback)", userData="system")
-        self.source_mode_combo.addItem("🎙+🔊 Both (Microphone + System Audio)", userData="both")
+        self.source_mode_combo.addItem("Microphone Only", icon=FIF.MICROPHONE, userData="mic")
+        self.source_mode_combo.addItem("System Audio Only (Speakers Loopback)", icon=FIF.SPEAKERS, userData="system")
+        self.source_mode_combo.addItem("Both (Microphone + System Audio)", icon=FIF.MIX_VOLUMES, userData="both")
         self.source_mode_combo.setToolTip(
             "Select audio capture source:\n"
             "- Microphone Only: Standard voice recording\n"
@@ -351,14 +352,17 @@ class TranscribeInterface(QWidget):
         btn_row.setAlignment(Qt.AlignmentFlag.AlignCenter)
         btn_row.setSpacing(12)
 
-        self.record_btn = PrimaryPushButton("● Start Recording", self)
+        self.record_btn = PrimaryPushButton("Start Recording", self)
+        self.record_btn.setIcon(FIF.MICROPHONE)
         self.record_btn.setFixedSize(180, 44)
 
-        self.pause_btn = PushButton("❚❚ Pause", self)
+        self.pause_btn = PushButton("Pause", self)
+        self.pause_btn.setIcon(FIF.PAUSE)
         self.pause_btn.setFixedSize(130, 44)
         self.pause_btn.setEnabled(False)
 
-        self.stop_btn = PushButton("■ Stop", self)
+        self.stop_btn = PushButton("Stop", self)
+        self.stop_btn.setIcon(FIF.CLOSE)
         self.stop_btn.setFixedSize(130, 44)
         self.stop_btn.setEnabled(False)
 
@@ -370,7 +374,8 @@ class TranscribeInterface(QWidget):
         # Saved file info
         saved_row = QHBoxLayout()
         self.saved_file_label = CaptionLabel("", self)
-        self.open_folder_btn = TransparentPushButton("📂 Open Recordings Folder", self)
+        self.open_folder_btn = TransparentPushButton("Open Recordings Folder", self)
+        self.open_folder_btn.setIcon(FIF.FOLDER)
         saved_row.addWidget(self.saved_file_label, 1)
         saved_row.addWidget(self.open_folder_btn)
         layout.addLayout(saved_row)
@@ -400,7 +405,7 @@ class TranscribeInterface(QWidget):
         row1.addWidget(BodyLabel("Target Page:", self))
 
         self.target_page_combo = ComboBox(self)
-        self.target_page_combo.addItem("✨ [+ Create New Page in Database]", userData=None)
+        self.target_page_combo.addItem("[+ Create New Page in Database]", icon=FIF.ADD, userData=None)
         row1.addWidget(self.target_page_combo, 1)
 
         self.today_filter_cb = CheckBox("Created Today only", self)
@@ -412,7 +417,8 @@ class TranscribeInterface(QWidget):
         self.clear_filter_btn.setToolTip("Clear filter to show all database pages")
         row1.addWidget(self.clear_filter_btn)
 
-        self.refresh_pages_btn = PushButton("🔄 Refresh", self)
+        self.refresh_pages_btn = PushButton("Refresh", self)
+        self.refresh_pages_btn.setIcon(FIF.SYNC)
         self.refresh_pages_btn.setToolTip("Fetch latest pages from Notion database")
         row1.addWidget(self.refresh_pages_btn)
         meta_layout.addLayout(row1)
@@ -457,14 +463,16 @@ class TranscribeInterface(QWidget):
         self.jargon_input.setClearButtonEnabled(True)
         row4.addWidget(self.jargon_input, 1)
 
-        self.import_slides_btn = PushButton("📊 Import Slides / OCR...", self)
+        self.import_slides_btn = PushButton("Import Slides / OCR...", self)
+        self.import_slides_btn.setIcon(FIF.ALBUM)
         self.import_slides_btn.setToolTip(
             "Extract course jargon and technical vocabulary from PDF slides, PowerPoint (.pptx),\n"
             "or slide screenshots (.png, .jpg) using hybrid text + Windows OCR."
         )
         row4.addWidget(self.import_slides_btn)
 
-        self.paste_slide_btn = TransparentPushButton("📋 Paste Slide", self)
+        self.paste_slide_btn = TransparentPushButton("Paste Slide", self)
+        self.paste_slide_btn.setIcon(FIF.PASTE)
         self.paste_slide_btn.setToolTip("Run OCR on a slide screenshot copied to your clipboard")
         row4.addWidget(self.paste_slide_btn)
 
@@ -488,10 +496,12 @@ class TranscribeInterface(QWidget):
         output_header.addLayout(output_header_left, 1)
 
         # View Switcher (Transcript vs Study Guide)
-        self.view_transcript_btn = PushButton("📜 Transcript", self)
+        self.view_transcript_btn = PushButton("Transcript", self)
+        self.view_transcript_btn.setIcon(FIF.DOCUMENT)
         self.view_transcript_btn.setCheckable(True)
         self.view_transcript_btn.setChecked(True)
-        self.view_study_btn = PushButton("📚 AI Study Guide", self)
+        self.view_study_btn = PushButton("AI Study Guide", self)
+        self.view_study_btn.setIcon(FIF.EDUCATION)
         self.view_study_btn.setCheckable(True)
         self.view_study_btn.setChecked(False)
 
@@ -511,34 +521,38 @@ class TranscribeInterface(QWidget):
         output_header.addWidget(self.view_transcript_btn)
         output_header.addWidget(self.view_study_btn)
 
-        self.stop_audio_btn = PushButton("⏹ Stop Audio", self)
+        self.stop_audio_btn = PushButton("Stop Audio", self)
+        self.stop_audio_btn.setIcon(FIF.PAUSE)
         self.stop_audio_btn.setVisible(False)
         self.stop_audio_btn.setToolTip("Stop currently playing audio snippet")
         output_header.addWidget(self.stop_audio_btn)
 
-        self.rename_speaker_btn = PushButton("🗣 Rename Speaker", self)
+        self.rename_speaker_btn = PushButton("Rename Speaker", self)
+        self.rename_speaker_btn.setIcon(FIF.PEOPLE)
         self.rename_speaker_btn.setEnabled(False)
         self.rename_speaker_btn.setToolTip("Rename a diarized speaker (e.g. 'Speaker 1' -> 'Prof. Smith') across the entire transcript")
         output_header.addWidget(self.rename_speaker_btn)
 
-        self.copy_btn = PushButton("📋 Copy", self)
-        self.copy_btn.setFixedWidth(80)
+        self.copy_btn = PushButton("Copy", self)
+        self.copy_btn.setIcon(FIF.COPY)
+        self.copy_btn.setFixedWidth(88)
         output_header.addWidget(self.copy_btn)
 
-        self.export_btn = PushButton("💾 Export ▾", self)
-        self.export_btn.setFixedWidth(90)
+        self.export_btn = PushButton("Export", self)
+        self.export_btn.setIcon(FIF.SAVE_AS)
+        self.export_btn.setFixedWidth(96)
         self.export_btn.setEnabled(False)
         self.export_menu = RoundMenu(parent=self)
 
         from PyQt6.QtGui import QAction
-        act_txt = QAction("Export Plain Text (.txt)...", self)
-        act_srt = QAction("Export Subtitles (.srt)...", self)
-        act_vtt = QAction("Export WebVTT (.vtt)...", self)
-        act_md = QAction("Export Markdown (.md)...", self)
-        act_json = QAction("Export JSON (.json)...", self)
-        act_notebooklm = QAction("📓 Export for NotebookLM (.md)...", self)
-        act_copy_notebooklm = QAction("📋 Copy for NotebookLM", self)
-        act_folder = QAction("📂 Open Transcripts Folder", self)
+        act_txt = QAction(FIF.DOCUMENT.icon(), "Export Plain Text (.txt)...", self)
+        act_srt = QAction(FIF.DOCUMENT.icon(), "Export Subtitles (.srt)...", self)
+        act_vtt = QAction(FIF.DOCUMENT.icon(), "Export WebVTT (.vtt)...", self)
+        act_md = QAction(FIF.DOCUMENT.icon(), "Export Markdown (.md)...", self)
+        act_json = QAction(FIF.CODE.icon(), "Export JSON (.json)...", self)
+        act_notebooklm = QAction(FIF.EDUCATION.icon(), "Export for NotebookLM (.md)...", self)
+        act_copy_notebooklm = QAction(FIF.COPY.icon(), "Copy for NotebookLM", self)
+        act_folder = QAction(FIF.FOLDER.icon(), "Open Transcripts Folder", self)
 
         self.export_menu.addAction(act_txt)
         self.export_menu.addAction(act_srt)
@@ -565,7 +579,8 @@ class TranscribeInterface(QWidget):
         output_header.addWidget(self.export_btn)
 
         self.clear_btn = PushButton("Clear", self)
-        self.clear_btn.setFixedWidth(70)
+        self.clear_btn.setIcon(FIF.DELETE)
+        self.clear_btn.setFixedWidth(80)
         output_header.addWidget(self.clear_btn)
 
         output_layout.addLayout(output_header)
@@ -627,34 +642,40 @@ class TranscribeInterface(QWidget):
         action_layout.addWidget(self.quick_model_combo)
 
         # Benchmark button
-        self.benchmark_btn = PushButton("⚡ Auto-Tune", self)
+        self.benchmark_btn = PushButton("Auto-Tune", self)
+        self.benchmark_btn.setIcon(FIF.SPEED_HIGH)
         self.benchmark_btn.setToolTip("Benchmark hardware & auto-select optimal model and speed settings")
         action_layout.addWidget(self.benchmark_btn)
 
         # Diarization toggle
-        self.diarize_cb = CheckBox("👥 Diarize Speakers", self)
+        self.diarize_cb = CheckBox("Diarize Speakers", self)
         self.diarize_cb.setChecked(config_manager.get("enable_diarization", True))
         self.diarize_cb.setToolTip("Identify and label distinct speakers")
         action_layout.addWidget(self.diarize_cb)
 
         self.transcribe_only_btn = PushButton("Transcribe Audio", self)
+        self.transcribe_only_btn.setIcon(FIF.PLAY)
         action_layout.addWidget(self.transcribe_only_btn)
 
-        self.compare_models_btn = PushButton("⚖ Compare Models...", self)
+        self.compare_models_btn = PushButton("Compare Models...", self)
+        self.compare_models_btn.setIcon(FIF.CONSTRACT)
         self.compare_models_btn.setEnabled(False)
         self.compare_models_btn.setToolTip("Compare current transcript with a second model")
         action_layout.addWidget(self.compare_models_btn)
 
-        self.study_guide_btn = PushButton("🎓 Study Guide", self)
+        self.study_guide_btn = PushButton("Study Guide", self)
+        self.study_guide_btn.setIcon(FIF.EDUCATION)
         self.study_guide_btn.setEnabled(False)
         self.study_guide_btn.setToolTip("Generate comprehensive lecture notes, key concepts, and active recall flashcards using Gemini or Ollama")
         action_layout.addWidget(self.study_guide_btn)
 
         self.push_only_btn = PushButton("Push to Notion", self)
+        self.push_only_btn.setIcon(FIF.SEND)
         self.push_only_btn.setEnabled(False)
         action_layout.addWidget(self.push_only_btn)
 
-        self.action_btn = PrimaryPushButton("⚡ Transcribe & Push to Notion", self)
+        self.action_btn = PrimaryPushButton("Transcribe & Push to Notion", self)
+        self.action_btn.setIcon(FIF.SEND_FILL)
         action_layout.addWidget(self.action_btn, 1)
 
         parent_layout.addWidget(self.action_bar_container)
@@ -1065,11 +1086,11 @@ class MainWindow(FluentWindow):
 
     def _on_slide_marked_here(self, slide_num: int, elapsed_sec: float, slide_title: str):
         ts_str = format_timestamp(elapsed_sec)
-        self.status_label.setText(f"📍 Marked 'We Are Here': Slide {slide_num} ({slide_title}) at [{ts_str}]")
+        self.status_label.setText(f"Marked 'We Are Here': Slide {slide_num} ({slide_title}) at [{ts_str}]")
         # Also append a live visual marker into the transcript preview if user is recording
         marker_html = (
             f'<p style="margin: 6px 0; padding: 4px 8px; background-color: #1e293b; border-left: 3px solid #38bdf8;">'
-            f'<span style="color: #38bdf8; font-weight: bold;">📍 [Slide {slide_num} @ {ts_str}]</span> '
+            f'<span style="color: #38bdf8; font-weight: bold;">[Slide {slide_num} @ {ts_str}]</span> '
             f'<span style="color: #e2e8f0; font-weight: bold;">{slide_title}</span>'
             f'</p>'
         )
@@ -1093,7 +1114,7 @@ class MainWindow(FluentWindow):
             text = seg.get("text", "").strip()
             ts_link = (
                 f'<a href="play:{start_s:.2f}-{end_s:.2f}" style="text-decoration: none;">'
-                f'<span style="color: #38bdf8; font-weight: bold; font-family: monospace; margin-right: 6px;">▶ {ts}</span></a>'
+                f'<span style="color: #38bdf8; font-weight: bold; font-family: monospace; margin-right: 6px;">{ts}</span></a>'
             )
             if has_speakers and "speaker" in seg:
                 speaker = seg.get("speaker", "Speaker 1")
@@ -1119,9 +1140,9 @@ class MainWindow(FluentWindow):
         unique_speakers = len(set(s.get("speaker", "Speaker 1") for s in segments)) if segments else 0
         words = sum(len(s.get("text", "").split()) for s in segments)
         if unique_speakers > 1:
-            self.stats_label.setText(f"{len(segments)} segments | {words} words | 👥 {unique_speakers} speakers  •  Click ▶ [time] to play or [Speaker] to rename")
+            self.stats_label.setText(f"{len(segments)} segments | {words} words | {unique_speakers} speakers  •  Click [time] to play or [Speaker] to rename")
         else:
-            self.stats_label.setText(f"{len(segments)} segments | {words} words  •  Click ▶ [time] to play audio")
+            self.stats_label.setText(f"{len(segments)} segments | {words} words  •  Click [time] to play audio")
 
     def _load_saved_transcript(self, file_path: str, prompt_append: bool = True) -> bool:
         """Check for and load any existing local transcript for this audio file."""
@@ -1278,7 +1299,7 @@ class MainWindow(FluentWindow):
             fname = os.path.basename(saved_file)
             self.record_status_badge.setText("RECORDING SAVED")
             self.status_label.setText(f"Recording saved: {fname}")
-            self.saved_file_label.setText(f"💾 {fname}")
+            self.saved_file_label.setText(f"Saved: {fname}")
             self.recordings_list.refresh()
 
     def _open_recordings_folder(self):
@@ -1318,7 +1339,8 @@ class MainWindow(FluentWindow):
             self.status_label.setText("Audio source set to: Both (Microphone + System Audio mixed)")
 
     def _on_record_started(self):
-        self.record_btn.setText("● Recording...")
+        self.record_btn.setText("Recording...")
+        self.record_btn.setIcon(FIF.MICROPHONE)
         self.record_btn.setEnabled(False)
         self.pause_btn.setEnabled(True)
         self.stop_btn.setEnabled(True)
@@ -1335,18 +1357,22 @@ class MainWindow(FluentWindow):
 
     def _on_record_paused(self, is_paused: bool):
         if is_paused:
-            self.pause_btn.setText("▶ Resume")
+            self.pause_btn.setText("Resume")
+            self.pause_btn.setIcon(FIF.PLAY)
             self.record_status_badge.setText("PAUSED")
             self.status_label.setText("Recording paused.")
         else:
-            self.pause_btn.setText("❚❚ Pause")
+            self.pause_btn.setText("Pause")
+            self.pause_btn.setIcon(FIF.PAUSE)
             self.record_status_badge.setText("RECORDING")
             self.status_label.setText("Recording resumed.")
 
     def _on_record_finished(self, file_path: str):
-        self.record_btn.setText("● Start Recording")
+        self.record_btn.setText("Start Recording")
+        self.record_btn.setIcon(FIF.MICROPHONE)
         self.record_btn.setEnabled(True)
-        self.pause_btn.setText("❚❚ Pause")
+        self.pause_btn.setText("Pause")
+        self.pause_btn.setIcon(FIF.PAUSE)
         self.pause_btn.setEnabled(False)
         self.stop_btn.setEnabled(False)
         self.source_mode_combo.setEnabled(True)
@@ -1378,7 +1404,7 @@ class MainWindow(FluentWindow):
     def _refresh_notion_status(self):
         """Update Notion status — no badge widget in FluentWindow, use status label."""
         if config_manager.is_notion_configured():
-            self.status_label.setText("Notion: Configured ✓")
+            self.status_label.setText("Notion: Configured")
         else:
             self.status_label.setText("Notion: Unconfigured — open Settings to configure")
 
@@ -1454,7 +1480,7 @@ class MainWindow(FluentWindow):
             return
 
         self.refresh_pages_btn.setEnabled(False)
-        self.refresh_pages_btn.setText("⏳ Loading...")
+        self.refresh_pages_btn.setText("Loading...")
 
         self._pages_worker = NotionFetchPagesWorker(token, db_id, parent=self)
         self._pages_worker.pages_fetched.connect(self._on_pages_fetched)
@@ -1463,13 +1489,13 @@ class MainWindow(FluentWindow):
 
     def _on_pages_fetched(self, pages: List[Dict[str, Any]]):
         self.refresh_pages_btn.setEnabled(True)
-        self.refresh_pages_btn.setText("🔄 Refresh")
+        self.refresh_pages_btn.setText("Refresh")
         self._notion_pages = pages
         self._repopulate_page_dropdown()
 
     def _on_pages_fetch_failed(self, err_msg: str):
         self.refresh_pages_btn.setEnabled(True)
-        self.refresh_pages_btn.setText("🔄 Refresh")
+        self.refresh_pages_btn.setText("Refresh")
         self.status_label.setText(f"Notion pages query error: {err_msg}")
 
     def _repopulate_page_dropdown(self):
@@ -1478,7 +1504,7 @@ class MainWindow(FluentWindow):
         self.target_page_combo.blockSignals(True)
         self.target_page_combo.clear()
 
-        self.target_page_combo.addItem("✨ [+ Create New Page in Database]", userData=None)
+        self.target_page_combo.addItem("[+ Create New Page in Database]", icon=FIF.ADD, userData=None)
 
         filter_today = self.today_filter_cb.isChecked()
         displayed_count = 0
@@ -1490,8 +1516,8 @@ class MainWindow(FluentWindow):
                 continue
 
             time_str = f" ({p.get('created_display', '')})" if p.get("created_display") else ""
-            item_text = f"📄 {p['title']}{time_str}"
-            self.target_page_combo.addItem(item_text, userData=p["id"])
+            item_text = f"{p['title']}{time_str}"
+            self.target_page_combo.addItem(item_text, icon=FIF.DOCUMENT, userData=p["id"])
             displayed_count += 1
 
         if prev_selected_id:
@@ -1517,7 +1543,7 @@ class MainWindow(FluentWindow):
             self.title_input.setText("")
             self.tags_input.setEnabled(False)
             self.push_only_btn.setText("Push (Append to Page)")
-            self.action_btn.setText("⚡ Transcribe & Append to Page")
+            self.action_btn.setText("Transcribe & Append to Page")
             self.status_label.setText("Target set to existing Notion page. Ready to append.")
         else:
             self.title_label.setText("Page Title:")
@@ -1528,7 +1554,7 @@ class MainWindow(FluentWindow):
                 self.title_input.setText(f"Transcript - {base}")
             self.tags_input.setEnabled(True)
             self.push_only_btn.setText("Push to Notion")
-            self.action_btn.setText("⚡ Transcribe & Push to Notion")
+            self.action_btn.setText("Transcribe & Push to Notion")
 
     # ==========================
     # Transcription Logic
@@ -2297,7 +2323,7 @@ class MainWindow(FluentWindow):
 
     def _run_slide_extraction(self, file_paths: List[str]):
         self.import_slides_btn.setEnabled(False)
-        self.import_slides_btn.setText("⏳ Extracting OCR...")
+        self.import_slides_btn.setText("Extracting OCR...")
         self.paste_slide_btn.setEnabled(False)
         self.status_label.setText(f"Extracting text & OCR jargon from {len(file_paths)} file(s)...")
 
@@ -2319,7 +2345,7 @@ class MainWindow(FluentWindow):
 
     def _on_slide_extraction_completed(self, jargon_terms: List[str], raw_text: str, file_names: List[str]):
         self.import_slides_btn.setEnabled(True)
-        self.import_slides_btn.setText("📊 Import Slides / OCR...")
+        self.import_slides_btn.setText("Import Slides / OCR...")
         self.paste_slide_btn.setEnabled(True)
 
         if raw_text:
@@ -2349,7 +2375,7 @@ class MainWindow(FluentWindow):
 
     def _on_slide_extraction_error(self, err_msg: str):
         self.import_slides_btn.setEnabled(True)
-        self.import_slides_btn.setText("📊 Import Slides / OCR...")
+        self.import_slides_btn.setText("Import Slides / OCR...")
         self.paste_slide_btn.setEnabled(True)
         self.status_label.setText("Slide OCR extraction failed.")
         InfoBar.error(

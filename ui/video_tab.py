@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
 from qfluentwidgets import (
     BodyLabel,
     CardWidget,
+    FluentIcon as FIF,
     ListWidget,
     MessageBox,
     PrimaryPushButton,
@@ -59,7 +60,7 @@ class VideoTabWidget(QWidget):
         b_layout.setContentsMargins(12, 12, 12, 12)
         b_layout.setSpacing(4)
 
-        title = StrongBodyLabel("📹 Video Inbox: Audio Extraction & Auto-Deletion", self)
+        title = StrongBodyLabel("Video Inbox: Audio Extraction & Auto-Deletion", self)
         desc = BodyLabel(
             "Place any video file (.mp4, .mkv, .mov, .avi, .webm) into your Video Inbox folder.\n"
             "NotionTranscribe will extract 16kHz speech audio, safely delete the video file to save disk space, "
@@ -87,6 +88,7 @@ class VideoTabWidget(QWidget):
         path_row.addWidget(self.folder_path_label, 1)
 
         self.change_folder_btn = PushButton("Change Folder...", self)
+        self.change_folder_btn.setIcon(FIF.FOLDER)
         self.change_folder_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.change_folder_btn.clicked.connect(self._choose_folder)
         path_row.addWidget(self.change_folder_btn)
@@ -96,17 +98,20 @@ class VideoTabWidget(QWidget):
         btn_row = QHBoxLayout()
         btn_row.setSpacing(8)
 
-        self.open_folder_btn = PrimaryPushButton("📂 Open Video Folder in Explorer", self)
+        self.open_folder_btn = PrimaryPushButton("Open Video Folder in Explorer", self)
+        self.open_folder_btn.setIcon(FIF.FOLDER)
         self.open_folder_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.open_folder_btn.clicked.connect(self._open_folder_explorer)
         btn_row.addWidget(self.open_folder_btn)
 
-        self.process_now_btn = PushButton("⚡ Process Videos Now", self)
+        self.process_now_btn = PushButton("Process Videos Now", self)
+        self.process_now_btn.setIcon(FIF.PLAY)
         self.process_now_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.process_now_btn.clicked.connect(self._process_now)
         btn_row.addWidget(self.process_now_btn)
 
         self.browse_video_btn = PushButton("Browse Video File...", self)
+        self.browse_video_btn.setIcon(FIF.VIDEO)
         self.browse_video_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.browse_video_btn.clicked.connect(self._browse_single_video)
         btn_row.addWidget(self.browse_video_btn)
@@ -171,7 +176,7 @@ class VideoTabWidget(QWidget):
 
     def _update_folder_label(self):
         watch_path = str(self.watcher.watch_folder)
-        self.folder_path_label.setText(f"📁 {watch_path}")
+        self.folder_path_label.setText(watch_path)
 
     def _connect_watcher(self):
         self.watcher.extraction_started.connect(self._on_extraction_started)

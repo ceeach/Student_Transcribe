@@ -33,6 +33,8 @@ from qfluentwidgets import (
     BodyLabel,
     CaptionLabel,
     CardWidget,
+    FluentIcon as FIF,
+    IconWidget,
     LineEdit,
     MessageBox,
     PrimaryPushButton,
@@ -96,23 +98,26 @@ class RecordingsListWidget(QWidget):
         top_bar.addWidget(title_label)
 
         self.search_input = LineEdit(self)
-        self.search_input.setPlaceholderText("🔍 Search across filenames, transcripts & notes...")
+        self.search_input.setPlaceholderText("Search across filenames, transcripts & notes...")
         self.search_input.setClearButtonEnabled(True)
         self.search_input.textChanged.connect(self._on_search_changed)
         top_bar.addWidget(self.search_input, 1)
 
-        self.view_logs_btn = PushButton("📋 View App Logs", self)
+        self.view_logs_btn = PushButton("View App Logs", self)
+        self.view_logs_btn.setIcon(FIF.DOCUMENT)
         self.view_logs_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.view_logs_btn.setToolTip("Open diagnostic log file (useful for troubleshooting crashes or errors)")
         self.view_logs_btn.clicked.connect(self._open_logs)
         top_bar.addWidget(self.view_logs_btn)
 
-        self.refresh_btn = PushButton("🔄 Refresh", self)
+        self.refresh_btn = PushButton("Refresh", self)
+        self.refresh_btn.setIcon(FIF.SYNC)
         self.refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.refresh_btn.clicked.connect(self.refresh)
         top_bar.addWidget(self.refresh_btn)
 
-        self.open_folder_btn = PushButton("📂 Open Folder", self)
+        self.open_folder_btn = PushButton("Open Folder", self)
+        self.open_folder_btn.setIcon(FIF.FOLDER)
         self.open_folder_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.open_folder_btn.clicked.connect(self._open_folder)
         top_bar.addWidget(self.open_folder_btn)
@@ -158,10 +163,14 @@ class RecordingsListWidget(QWidget):
         notes_layout.setSpacing(8)
 
         notes_header = QHBoxLayout()
-        notes_header_title = SubtitleLabel("📝 Recording Notes", self)
+        notes_icon = IconWidget(FIF.QUICK_NOTE, self)
+        notes_icon.setFixedSize(18, 18)
+        notes_header.addWidget(notes_icon)
+        notes_header_title = SubtitleLabel("Recording Notes", self)
         notes_header.addWidget(notes_header_title, 1)
 
-        self.save_notes_btn = PushButton("💾 Save", self)
+        self.save_notes_btn = PushButton("Save", self)
+        self.save_notes_btn.setIcon(FIF.SAVE)
         self.save_notes_btn.setEnabled(False)
         self.save_notes_btn.clicked.connect(self._save_current_notes)
         notes_header.addWidget(self.save_notes_btn)
@@ -194,25 +203,29 @@ class RecordingsListWidget(QWidget):
         self.count_label = CaptionLabel("0 recordings found", self)
         bottom_bar.addWidget(self.count_label, 1)
 
-        self.play_btn = PushButton("▶ Play Audio", self)
+        self.play_btn = PushButton("Play Audio", self)
+        self.play_btn.setIcon(FIF.PLAY)
         self.play_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.play_btn.setEnabled(False)
         self.play_btn.clicked.connect(self._play_selected)
         bottom_bar.addWidget(self.play_btn)
 
-        self.view_transcript_btn = PushButton("📄 View Text (.txt)", self)
+        self.view_transcript_btn = PushButton("View Text (.txt)", self)
+        self.view_transcript_btn.setIcon(FIF.DOCUMENT)
         self.view_transcript_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.view_transcript_btn.setEnabled(False)
         self.view_transcript_btn.clicked.connect(self._view_transcript)
         bottom_bar.addWidget(self.view_transcript_btn)
 
-        self.delete_btn = PushButton("🗑 Delete", self)
+        self.delete_btn = PushButton("Delete", self)
+        self.delete_btn.setIcon(FIF.DELETE)
         self.delete_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.delete_btn.setEnabled(False)
         self.delete_btn.clicked.connect(self._delete_selected)
         bottom_bar.addWidget(self.delete_btn)
 
-        self.load_btn = PrimaryPushButton("⚡ Load for Transcription", self)
+        self.load_btn = PrimaryPushButton("Load for Transcription", self)
+        self.load_btn.setIcon(FIF.SEND_FILL)
         self.load_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.load_btn.setEnabled(False)
         self.load_btn.clicked.connect(self._load_selected)

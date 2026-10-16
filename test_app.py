@@ -1234,8 +1234,81 @@ class TestSlideOCRAndJargonExtractor(unittest.TestCase):
 
             companion.close()
 
+    def test_multi_deck_loading_switching_and_timeline(self):
+        import tempfile
+        from pathlib import Path
+        from PyQt6.QtWidgets import QApplication
+        import pymupdf as fitz
+        from ui.slide_viewer import SlideCompanionWidget
+
+        app = QApplication.instance() or QApplication(["test"])
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            deck1_path = Path(tmp_dir) / "Lecture_Part1.pdf"
+            doc1 = fitz.open()
+            for i in range(1, 4):
+                p = doc1.new_page(width=600, height=400)
+                p.insert_text((50, 60), f"Part 1 - Slide {i}: Introduction to Economics")
+            doc1.save(str(deck1_path))
+            doc1.close()
+
+            deck2_path = Path(tmp_dir) / "Case_Study.pdf"
+            doc2 = fitz.open()
+            for i in range(1, 3):
+                p = doc2.new_page(width=600, height=400)
+                p.insert_text((50, 60), f"Case Study - Slide {i}: Market Equilibrium Analysis")
+            doc2.save(str(deck2_path))
+            doc2.close()
+
+            companion = SlideCompanionWidget(time_provider=lambda: 45.0)
+
+            # Load Deck 1
+            self.assertTrue(companion.load_pdf(str(deck1_path)))
+            self.assertEqual(len(companion._decks), 1)
+            self.assertEqual(companion.current_deck.name, "Lecture_Part1.pdf")
+            self.assertEqual(companion.slide_list.count(), 3)
+
+            # Mark "We Are Here" on Deck 1 Slide 2
+            companion.slide_list.setCurrentRow(1)
+            companion.mark_current_slide_here()
+            self.assertEqual(companion.current_deck.active_idx, 1)
+
+            # Load Deck 2 (multi-deck capability)
+            self.assertTrue(companion.load_pdf(str(deck2_path)))
+            self.assertEqual(len(companion._decks), 2)
+            self.assertEqual(companion.current_deck.name, "Case_Study.pdf")
+            self.assertEqual(companion.slide_list.count(), 2)
+
+            # Annotate Deck 2 Slide 1
+            companion.canvas.add_text_annotation("Demand Curve Shift", 0.4, 0.4)
+            companion.slide_notes_edit.setPlainText("Professor mentioned this case is on the final exam")
+            companion._save_current_slide_strokes()
+            companion._save_current_slide_notes()
+
+            # Switch back to Deck 1 via deck switcher
+            companion.switch_to_deck(0)
+            self.assertEqual(companion.current_deck.name, "Lecture_Part1.pdf")
+            self.assertEqual(companion.slide_list.count(), 3)
+            # Active slide on Deck 1 is still preserved as Slide 2!
+            self.assertEqual(companion.current_deck.active_idx, 1)
+
+            # Verify multi-deck Markdown summary contains both decks and their respective annotations
+            summary = companion.format_annotations_summary_markdown()
+            self.assertIn("Deck: Lecture_Part1.pdf", summary)
+            self.assertIn("Deck: Case_Study.pdf", summary)
+            self.assertIn("Demand Curve Shift", summary)
+            self.assertIn("final exam", summary)
+
+            # Test removing a deck
+            companion.remove_current_deck()
+            self.assertEqual(len(companion._decks), 1)
+            self.assertEqual(companion.current_deck.name, "Case_Study.pdf")
+
+            companion.close()
+
 
 if __name__ == "__main__":
     unittest.main()
+
 
 

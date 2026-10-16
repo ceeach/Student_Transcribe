@@ -902,8 +902,29 @@ class AnnotatableSlideCanvas(QWidget):
 # ============================================================
 # Main Slide Companion & Full-Screen PDF Editor Widget
 # ============================================================
+# ============================================================
+# Slide Deck Model for Multi-Deck Class Support
+# ============================================================
+class SlideDeck:
+    """Represents an imported PDF slide deck in a class lecture session."""
+
+    def __init__(self, pdf_path: str, name: str, pixmaps: List[QPixmap], titles: List[str]):
+        self.pdf_path: str = pdf_path
+        self.name: str = name
+        self.pixmaps: List[QPixmap] = pixmaps
+        self.titles: List[str] = titles
+        self.preview_idx: int = 0 if pixmaps else -1
+        self.active_idx: int = -1
+        self.slide_data: Dict[int, Dict[str, Any]] = {
+            i: {"timestamps": [], "notes": "", "strokes": []} for i in range(len(pixmaps))
+        }
+
+
+# ============================================================
+# Main Slide Companion & Full-Screen PDF Editor Widget
+# ============================================================
 class SlideCompanionWidget(QWidget):
-    """Live Lecture Slide Companion with full-screen PDF Editor, bottom-middle navigation, and touchpad slide scrolling."""
+    """Live Lecture Slide Companion with multi-deck support, full-screen PDF Editor, bottom-middle navigation, and touchpad slide scrolling."""
 
     pdf_imported_for_jargon = pyqtSignal(str)       # Emits PDF path so MainWindow extracts OCR/jargon
     slide_marked_here = pyqtSignal(int, float, str)  # (slide_number_1based, timestamp_sec, slide_title)
@@ -914,36 +935,97 @@ class SlideCompanionWidget(QWidget):
     def __init__(self, time_provider=None, parent=None):
         super().__init__(parent)
         self._time_provider = time_provider or (lambda: 0.0)
-        self._pdf_path: Optional[str] = None
-        self._slide_pixmaps: List[QPixmap] = []
-        self._slide_titles: List[str] = []
-        self._preview_idx: int = -1       # 0-based index of currently previewed slide
-        self._active_idx: int = -1        # 0-based index of "We Are Here" active class slide
-
-        # Per-slide metadata keyed by 0-based slide_idx:
-        # {"timestamps": List[float], "notes": str, "strokes": List[dict]}
-        self._slide_data: Dict[int, Dict[str, Any]] = {}
+        self._decks: List[SlideDeck] = []
+        self._current_deck_idx: int = -1
         self._is_loading_slide = False
 
         self._init_ui()
+
+    # ---- Backwards Compatible Deck & Slide Properties ----
+    @property
+    def current_deck(self) -> Optional[SlideDeck]:
+        if 0 <= self._current_deck_idx < len(self._decks):
+            return self._decks[self._current_deck_idx]
+        return None
+
+    @property
+    def _pdf_path(self) -> Optional[str]:
+        deck = self.current_deck
+        return deck.pdf_path if deck else None
+
+    @property
+    def _slide_pixmaps(self) -> List[QPixmap]:
+        deck = self.current_deck
+        return deck.pixmaps if deck else []
+
+    @property
+    def _slide_titles(self) -> List[str]:
+        deck = self.current_deck
+        return deck.titles if deck else []
+
+    @property
+    def _preview_idx(self) -> int:
+        deck = self.current_deck
+        return deck.preview_idx if deck else -1
+
+    @_preview_idx.setter
+    def _preview_idx(self, val: int):
+        deck = self.current_deck
+        if deck:
+            deck.preview_idx = val
+
+    @property
+    def _active_idx(self) -> int:
+        deck = self.current_deck
+        return deck.active_idx if deck else -1
+
+    @_active_idx.setter
+    def _active_idx(self, val: int):
+        deck = self.current_deck
+        if deck:
+            deck.active_idx = val
+
+    @property
+    def _slide_data(self) -> Dict[int, Dict[str, Any]]:
+        deck = self.current_deck
+        return deck.slide_data if deck else {}
 
     def _init_ui(self):
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 2, 0, 2)
         main_layout.setSpacing(6)
 
-        # ---- Top Bar: Load PDF, Export Annotated PDF, Preview Status, Full Screen ----
+        # ---- Top Bar: Add Slide Deck, Deck Selector, Remove Deck, Export, Banner, Live Timer, Full Screen ----
         top_bar = QHBoxLayout()
-        top_bar.setSpacing(8)
+        top_bar.setContentsMargins(4, 2, 4, 2)
+        top_bar.setSpacing(6)
 
-        self.open_pdf_btn = PushButton("Load Class PDF...", self)
+        self.open_pdf_btn = PushButton("Add Slide Deck...", self)
         self.open_pdf_btn.setIcon(FIF.FOLDER_ADD)
-        self.open_pdf_btn.setToolTip("Load lecture slides (.pdf) to preview, annotate, and track timestamps during class")
+        self.open_pdf_btn.setFixedHeight(32)
+        self.open_pdf_btn.setToolTip("Add one or more PDF slide decks for this class lecture session")
         self.open_pdf_btn.clicked.connect(self._prompt_open_pdf)
         top_bar.addWidget(self.open_pdf_btn)
 
+        # Multi-deck selector dropdown
+        self.deck_combo = ComboBox(self)
+        self.deck_combo.setFixedHeight(32)
+        self.deck_combo.setMinimumWidth(160)
+        self.deck_combo.setToolTip("Switch between loaded class slide decks")
+        self.deck_combo.currentIndexChanged.connect(self._on_deck_combo_changed)
+        top_bar.addWidget(self.deck_combo)
+
+        self.remove_deck_btn = TransparentPushButton("", self)
+        self.remove_deck_btn.setIcon(FIF.DELETE)
+        self.remove_deck_btn.setFixedSize(30, 30)
+        self.remove_deck_btn.setEnabled(False)
+        self.remove_deck_btn.setToolTip("Remove current slide deck from class session")
+        self.remove_deck_btn.clicked.connect(self.remove_current_deck)
+        top_bar.addWidget(self.remove_deck_btn)
+
         self.export_pdf_btn = PushButton("Export Annotated PDF...", self)
         self.export_pdf_btn.setIcon(FIF.SAVE_AS)
+        self.export_pdf_btn.setFixedHeight(32)
         self.export_pdf_btn.setEnabled(False)
         self.export_pdf_btn.setToolTip("Save a copy of the PDF (or current slide PNG) with all your highlights, drawings, and text burned in")
         self.export_pdf_btn.clicked.connect(self._prompt_export_annotated)
@@ -964,6 +1046,7 @@ class SlideCompanionWidget(QWidget):
         # Full-Screen OS Window Toggle Button
         self.fullscreen_btn = PushButton("Full Screen", self)
         self.fullscreen_btn.setIcon(FIF.FULL_SCREEN)
+        self.fullscreen_btn.setFixedHeight(32)
         self.fullscreen_btn.setToolTip("Toggle full-screen lecture mode")
         self.fullscreen_btn.clicked.connect(self.toggle_window_fullscreen)
         top_bar.addWidget(self.fullscreen_btn)
@@ -1298,20 +1381,21 @@ class SlideCompanionWidget(QWidget):
             self.fullscreen_btn.setIcon(FIF.BACK_TO_WINDOW)
 
     # ==========================
-    # PDF Loading & Exporting
+    # Multi-Deck PDF Loading & Management
     # ==========================
     def _prompt_open_pdf(self):
-        file_path, _ = QFileDialog.getOpenFileName(
+        file_paths, _ = QFileDialog.getOpenFileNames(
             self,
-            "Select Class Lecture PDF Slides",
+            "Select Class Lecture PDF Slides (select one or multiple decks)",
             "",
             "PDF Documents (*.pdf)",
         )
-        if file_path:
-            self.load_pdf(file_path)
+        if file_paths:
+            for p in file_paths:
+                self.load_pdf(p)
 
-    def load_pdf(self, pdf_path: str) -> bool:
-        """Render pages of a PDF slide deck for interactive previewing and annotation."""
+    def load_pdf(self, pdf_path: str, switch_to: bool = True) -> bool:
+        """Render pages of a PDF slide deck and add it to the multi-deck class lecture session."""
         if not pdf_path or not os.path.exists(pdf_path):
             return False
 
@@ -1325,18 +1409,20 @@ class SlideCompanionWidget(QWidget):
                 return False
 
         try:
+            # Check if this deck is already loaded
+            for idx, d in enumerate(self._decks):
+                if os.path.abspath(d.pdf_path) == os.path.abspath(pdf_path):
+                    if switch_to:
+                        self.switch_to_deck(idx)
+                    return True
+
             doc = fitz.open(pdf_path)
             if len(doc) == 0:
                 doc.close()
                 return False
 
-            self._pdf_path = pdf_path
-            self._slide_pixmaps.clear()
-            self._slide_titles.clear()
-            self._slide_data.clear()
-            self.slide_list.clear()
-            self._active_idx = -1
-            self._preview_idx = -1
+            pixmaps: List[QPixmap] = []
+            titles: List[str] = []
 
             for idx in range(len(doc)):
                 page = doc[idx]
@@ -1348,9 +1434,9 @@ class SlideCompanionWidget(QWidget):
                         first_line = clean_l[:32]
                         break
                 title_str = first_line or f"Slide {idx + 1}"
-                self._slide_titles.append(title_str)
+                titles.append(title_str)
 
-                # Render slide pixmap at crisp 160 DPI for full-screen clarity
+                # Render slide pixmap at crisp 160 DPI
                 pix = page.get_pixmap(dpi=160, alpha=False)
                 qimg = QImage(
                     pix.samples,
@@ -1359,31 +1445,29 @@ class SlideCompanionWidget(QWidget):
                     pix.stride,
                     QImage.Format.Format_RGB888,
                 ).copy()
-                qpix = QPixmap.fromImage(qimg)
-                self._slide_pixmaps.append(qpix)
-
-                self._slide_data[idx] = {
-                    "timestamps": [],
-                    "notes": "",
-                    "strokes": [],
-                }
-
-                item = QListWidgetItem(f"Slide {idx + 1}: {title_str}")
-                item.setIcon(FIF.DOCUMENT.icon())
-                self.slide_list.addItem(item)
+                pixmaps.append(QPixmap.fromImage(qimg))
 
             doc.close()
+
+            deck_name = Path(pdf_path).name
+            new_deck = SlideDeck(
+                pdf_path=pdf_path,
+                name=deck_name,
+                pixmaps=pixmaps,
+                titles=titles,
+            )
+            self._decks.append(new_deck)
+            self._update_deck_combo()
+
+            if switch_to or len(self._decks) == 1:
+                self.switch_to_deck(len(self._decks) - 1)
 
             self.prev_btn.setEnabled(True)
             self.next_btn.setEnabled(True)
             self.we_are_here_btn.setEnabled(True)
             self.export_pdf_btn.setEnabled(True)
             self.slide_notes_edit.setEnabled(True)
-            self.active_status_btn.setText("Active: Not marked")
-            self.active_status_btn.setEnabled(False)
-
-            # Select Slide 1 for preview
-            self.slide_list.setCurrentRow(0)
+            self.remove_deck_btn.setEnabled(True)
 
             # Notify MainWindow so it also extracts Course Jargon for Whisper
             self.pdf_imported_for_jargon.emit(pdf_path)
@@ -1392,10 +1476,91 @@ class SlideCompanionWidget(QWidget):
             logger.exception(f"Failed to load PDF into SlideCompanionWidget: {e}")
             return False
 
-    def _prompt_export_annotated(self):
-        if not self._slide_pixmaps:
+    def _update_deck_combo(self):
+        self.deck_combo.blockSignals(True)
+        self.deck_combo.clear()
+        for idx, deck in enumerate(self._decks):
+            count = len(deck.pixmaps)
+            self.deck_combo.addItem(f"Deck {idx + 1}: {deck.name} ({count} slides)", icon=FIF.DOCUMENT, userData=idx)
+        if 0 <= self._current_deck_idx < len(self._decks):
+            self.deck_combo.setCurrentIndex(self._current_deck_idx)
+        self.deck_combo.blockSignals(False)
+        self.deck_combo.setEnabled(len(self._decks) > 1)
+        self.remove_deck_btn.setEnabled(len(self._decks) > 0)
+
+    def _on_deck_combo_changed(self, index: int):
+        if 0 <= index < len(self._decks) and index != self._current_deck_idx:
+            self.switch_to_deck(index)
+
+    def switch_to_deck(self, index: int):
+        """Switch active slide deck in the class session, saving any current slide annotations first."""
+        if index < 0 or index >= len(self._decks):
             return
-        base_stem = Path(self._pdf_path).stem if self._pdf_path else "Class_Slides"
+
+        self._save_current_slide_strokes()
+        self._save_current_slide_notes()
+
+        self._current_deck_idx = index
+        deck = self._decks[index]
+
+        self.deck_combo.blockSignals(True)
+        self.deck_combo.setCurrentIndex(index)
+        self.deck_combo.blockSignals(False)
+
+        # Repopulate slide_list
+        self._is_loading_slide = True
+        self.slide_list.blockSignals(True)
+        self.slide_list.clear()
+        for idx, title_str in enumerate(deck.titles):
+            data = deck.slide_data.get(idx, {})
+            ts_list = data.get("timestamps", [])
+            has_notes = bool(data.get("notes", "").strip() or data.get("strokes"))
+
+            item = QListWidgetItem(f"Slide {idx + 1}: {title_str}")
+            if idx == deck.active_idx:
+                item.setIcon(FIF.PIN.icon())
+            elif has_notes:
+                item.setIcon(FIF.EDIT.icon())
+            else:
+                item.setIcon(FIF.DOCUMENT.icon())
+            self.slide_list.addItem(item)
+        self.slide_list.blockSignals(False)
+        self._is_loading_slide = False
+
+        target_row = deck.preview_idx if 0 <= deck.preview_idx < len(deck.pixmaps) else 0
+        self.slide_list.setCurrentRow(target_row)
+        self._refresh_preview_ui()
+
+    def remove_current_deck(self):
+        """Remove the currently selected slide deck from this class session."""
+        if not self._decks or self._current_deck_idx < 0:
+            return
+        del self._decks[self._current_deck_idx]
+        self._update_deck_combo()
+        if self._decks:
+            new_idx = min(self._current_deck_idx, len(self._decks) - 1)
+            self.switch_to_deck(new_idx)
+        else:
+            self._current_deck_idx = -1
+            self.slide_list.clear()
+            self.canvas.set_slide(None, [])
+            self.slide_notes_edit.clear()
+            self.slide_notes_edit.setEnabled(False)
+            self.prev_btn.setEnabled(False)
+            self.next_btn.setEnabled(False)
+            self.we_are_here_btn.setEnabled(False)
+            self.export_pdf_btn.setEnabled(False)
+            self.remove_deck_btn.setEnabled(False)
+            self.slide_counter_label.setText("No Deck")
+            self.active_status_btn.setText("Active: None")
+            self.active_status_btn.setEnabled(False)
+            self.preview_banner_label.setText("No slide deck loaded")
+
+    def _prompt_export_annotated(self):
+        deck = self.current_deck
+        if not deck or not deck.pixmaps:
+            return
+        base_stem = Path(deck.pdf_path).stem if deck.pdf_path else "Class_Slides"
         save_path, selected_filter = QFileDialog.getSaveFileName(
             self,
             "Export Annotated Slides",
@@ -1407,8 +1572,9 @@ class SlideCompanionWidget(QWidget):
         self.export_annotated_slides(save_path)
 
     def export_annotated_slides(self, output_path: str) -> bool:
-        """Export either the current annotated slide (.png) or the entire annotated deck (.pdf)."""
-        if not self._slide_pixmaps:
+        """Export either the current annotated slide (.png) or the annotated deck (.pdf)."""
+        deck = self.current_deck
+        if not deck or not deck.pixmaps:
             return False
         try:
             if output_path.lower().endswith(".png"):
@@ -1422,8 +1588,8 @@ class SlideCompanionWidget(QWidget):
 
             out_doc = fitz.open()
             temp_canvas = AnnotatableSlideCanvas()
-            for idx, base_pix in enumerate(self._slide_pixmaps):
-                strokes = self._slide_data.get(idx, {}).get("strokes", [])
+            for idx, base_pix in enumerate(deck.pixmaps):
+                strokes = deck.slide_data.get(idx, {}).get("strokes", [])
                 temp_canvas.set_slide(base_pix, strokes)
                 annotated_pix = temp_canvas.render_annotated_slide_pixmap()
                 if not annotated_pix:
@@ -1455,55 +1621,65 @@ class SlideCompanionWidget(QWidget):
             self.preview_prev_slide()
 
     def _on_list_row_changed(self, row: int):
-        if row < 0 or row >= len(self._slide_pixmaps):
+        deck = self.current_deck
+        if not deck or row < 0 or row >= len(deck.pixmaps):
             return
-        self._preview_idx = row
+        deck.preview_idx = row
         self._refresh_preview_ui()
 
     def preview_prev_slide(self):
-        if self._preview_idx > 0:
-            self.slide_list.setCurrentRow(self._preview_idx - 1)
+        deck = self.current_deck
+        if deck and deck.preview_idx > 0:
+            self.slide_list.setCurrentRow(deck.preview_idx - 1)
 
     def preview_next_slide(self):
-        if self._preview_idx + 1 < len(self._slide_pixmaps):
-            self.slide_list.setCurrentRow(self._preview_idx + 1)
+        deck = self.current_deck
+        if deck and deck.preview_idx + 1 < len(deck.pixmaps):
+            self.slide_list.setCurrentRow(deck.preview_idx + 1)
 
     def jump_to_active_slide(self):
-        """Return preview to whichever slide was last marked 'We Are Here'."""
-        if 0 <= self._active_idx < len(self._slide_pixmaps):
-            self.slide_list.setCurrentRow(self._active_idx)
+        """Return preview to whichever slide was last marked 'We Are Here' in the current deck."""
+        deck = self.current_deck
+        if deck and 0 <= deck.active_idx < len(deck.pixmaps):
+            self.slide_list.setCurrentRow(deck.active_idx)
 
     def mark_current_slide_here(self) -> Optional[Tuple[int, float]]:
-        """Mark the currently previewed slide as the active class slide ('We Are Here') with current timestamp."""
-        if self._preview_idx < 0 or self._preview_idx >= len(self._slide_pixmaps):
+        """Mark currently previewed slide as the active class slide ('We Are Here') with timestamp."""
+        deck = self.current_deck
+        if not deck or deck.preview_idx < 0 or deck.preview_idx >= len(deck.pixmaps):
             return None
 
-        self._active_idx = self._preview_idx
+        deck.active_idx = deck.preview_idx
         elapsed_sec = float(self._time_provider() or 0.0)
-        entry = self._slide_data.setdefault(
-            self._active_idx, {"timestamps": [], "notes": "", "strokes": []}
+        entry = deck.slide_data.setdefault(
+            deck.active_idx, {"timestamps": [], "notes": "", "strokes": []}
         )
         entry["timestamps"].append(round(elapsed_sec, 1))
 
         self._update_list_item_labels()
         self._refresh_preview_ui()
 
-        slide_num = self._active_idx + 1
-        slide_title = self._slide_titles[self._active_idx] if self._active_idx < len(self._slide_titles) else f"Slide {slide_num}"
-        self.slide_marked_here.emit(slide_num, elapsed_sec, slide_title)
+        slide_num = deck.active_idx + 1
+        slide_title = deck.titles[deck.active_idx] if deck.active_idx < len(deck.titles) else f"Slide {slide_num}"
+        prefix = f"[{deck.name}] " if len(self._decks) > 1 else ""
+        full_title = f"{prefix}{slide_title}"
+        self.slide_marked_here.emit(slide_num, elapsed_sec, full_title)
         return slide_num, elapsed_sec
 
     def _update_list_item_labels(self):
+        deck = self.current_deck
+        if not deck:
+            return
         for idx in range(self.slide_list.count()):
             item = self.slide_list.item(idx)
             if not item:
                 continue
-            title = self._slide_titles[idx] if idx < len(self._slide_titles) else f"Slide {idx + 1}"
-            data = self._slide_data.get(idx, {})
+            title = deck.titles[idx] if idx < len(deck.titles) else f"Slide {idx + 1}"
+            data = deck.slide_data.get(idx, {})
             ts_list = data.get("timestamps", [])
             has_notes = bool(data.get("notes", "").strip() or data.get("strokes"))
 
-            if idx == self._active_idx:
+            if idx == deck.active_idx:
                 item.setIcon(FIF.PIN.icon())
             elif has_notes:
                 item.setIcon(FIF.EDIT.icon())
@@ -1514,32 +1690,44 @@ class SlideCompanionWidget(QWidget):
             item.setText(f"Slide {idx + 1}: {title}{suffix}")
 
     def _refresh_preview_ui(self):
-        total = len(self._slide_pixmaps)
-        if self._preview_idx < 0 or total == 0:
-            self.slide_counter_label.setText("No Deck Loaded")
+        deck = self.current_deck
+        if not deck or deck.preview_idx < 0 or len(deck.pixmaps) == 0:
+            self.slide_counter_label.setText("No Deck")
+            self.preview_banner_label.setText("No slide deck loaded")
+            self.prev_btn.setEnabled(False)
+            self.next_btn.setEnabled(False)
+            self.we_are_here_btn.setEnabled(False)
+            self.active_status_btn.setEnabled(False)
+            self.active_status_btn.setText("Active: None")
             return
 
-        slide_num = self._preview_idx + 1
+        total = len(deck.pixmaps)
+        slide_num = deck.preview_idx + 1
         self.slide_counter_label.setText(f"Slide {slide_num} / {total}")
-        self.prev_btn.setEnabled(self._preview_idx > 0)
-        self.next_btn.setEnabled(self._preview_idx < total - 1)
+        self.prev_btn.setEnabled(deck.preview_idx > 0)
+        self.next_btn.setEnabled(deck.preview_idx < total - 1)
+        self.we_are_here_btn.setEnabled(True)
 
-        if self._active_idx >= 0:
-            active_num = self._active_idx + 1
+        deck_prefix = f"[{deck.name}] " if len(self._decks) > 1 else ""
+
+        if deck.active_idx >= 0:
+            active_num = deck.active_idx + 1
             self.active_status_btn.setEnabled(True)
-            if self._preview_idx == self._active_idx:
+            if deck.preview_idx == deck.active_idx:
                 self.active_status_btn.setText(f"Active: Slide {active_num}")
-                self.preview_banner_label.setText(f"Viewing Active Class Slide {slide_num}")
+                self.preview_banner_label.setText(f"{deck_prefix}Viewing Active Class Slide {slide_num}")
             else:
                 self.active_status_btn.setText(f"Active: Slide {active_num} (Return)")
                 self.preview_banner_label.setText(
-                    f"Previewing Slide {slide_num} (Class is currently on Slide {active_num})"
+                    f"{deck_prefix}Previewing Slide {slide_num} (Class is currently on Slide {active_num})"
                 )
         else:
-            self.preview_banner_label.setText(f"Previewing Slide {slide_num} — Click 'We Are Here' when class reaches this slide")
+            self.active_status_btn.setText("Active: Not marked")
+            self.active_status_btn.setEnabled(False)
+            self.preview_banner_label.setText(f"{deck_prefix}Previewing Slide {slide_num} — Click 'We Are Here' when class reaches this slide")
 
-        data = self._slide_data.get(self._preview_idx, {"timestamps": [], "notes": "", "strokes": []})
-        pix = self._slide_pixmaps[self._preview_idx]
+        data = deck.slide_data.get(deck.preview_idx, {"timestamps": [], "notes": "", "strokes": []})
+        pix = deck.pixmaps[deck.preview_idx]
         self.canvas.set_slide(pix, data.get("strokes", []))
 
         self._is_loading_slide = True
@@ -1587,27 +1775,35 @@ class SlideCompanionWidget(QWidget):
             self.canvas.set_pen_color(hex_col)
 
     def _save_current_slide_strokes(self):
-        if self._is_loading_slide or self._preview_idx < 0:
+        deck = self.current_deck
+        if self._is_loading_slide or not deck or deck.preview_idx < 0:
             return
-        entry = self._slide_data.setdefault(
-            self._preview_idx, {"timestamps": [], "notes": "", "strokes": []}
+        entry = deck.slide_data.setdefault(
+            deck.preview_idx, {"timestamps": [], "notes": "", "strokes": []}
         )
         entry["strokes"] = self.canvas.get_strokes()
         self._update_list_item_labels()
 
-    def _on_slide_notes_changed(self):
-        if self._is_loading_slide or self._preview_idx < 0:
+    def _save_current_slide_notes(self):
+        deck = self.current_deck
+        if self._is_loading_slide or not deck or deck.preview_idx < 0:
             return
-        entry = self._slide_data.setdefault(
-            self._preview_idx, {"timestamps": [], "notes": "", "strokes": []}
+        entry = deck.slide_data.setdefault(
+            deck.preview_idx, {"timestamps": [], "notes": "", "strokes": []}
         )
         entry["notes"] = self.slide_notes_edit.toPlainText().strip()
         self._update_list_item_labels()
 
+    def _on_slide_notes_changed(self):
+        self._save_current_slide_notes()
+
     def get_timeline_markers(self) -> List[Dict[str, Any]]:
-        """Return chronological list of all 'We Are Here' slide markers and slide annotations."""
+        """Return chronological list of all 'We Are Here' slide markers and slide annotations for the current deck."""
+        deck = self.current_deck
+        if not deck:
+            return []
         markers: List[Dict[str, Any]] = []
-        for idx, data in sorted(self._slide_data.items()):
+        for idx, data in sorted(deck.slide_data.items()):
             ts_list = data.get("timestamps", [])
             notes = data.get("notes", "").strip()
             strokes = data.get("strokes", [])
@@ -1616,7 +1812,7 @@ class SlideCompanionWidget(QWidget):
                 for s in strokes
                 if s.get("mode") == "text" and s.get("text", "").strip()
             ]
-            title = self._slide_titles[idx] if idx < len(self._slide_titles) else f"Slide {idx + 1}"
+            title = deck.titles[idx] if idx < len(deck.titles) else f"Slide {idx + 1}"
             if ts_list or notes or strokes:
                 markers.append({
                     "slide_number": idx + 1,
@@ -1629,27 +1825,61 @@ class SlideCompanionWidget(QWidget):
                 })
         return markers
 
+    def get_all_timeline_markers(self) -> Dict[str, List[Dict[str, Any]]]:
+        """Return timeline markers organized by deck name across all loaded decks in the class."""
+        all_markers: Dict[str, List[Dict[str, Any]]] = {}
+        for deck in self._decks:
+            markers: List[Dict[str, Any]] = []
+            for idx, data in sorted(deck.slide_data.items()):
+                ts_list = data.get("timestamps", [])
+                notes = data.get("notes", "").strip()
+                strokes = data.get("strokes", [])
+                on_slide_texts = [
+                    s.get("text", "").strip()
+                    for s in strokes
+                    if s.get("mode") == "text" and s.get("text", "").strip()
+                ]
+                title = deck.titles[idx] if idx < len(deck.titles) else f"Slide {idx + 1}"
+                if ts_list or notes or strokes:
+                    markers.append({
+                        "slide_number": idx + 1,
+                        "title": title,
+                        "timestamps": ts_list,
+                        "first_timestamp": ts_list[0] if ts_list else None,
+                        "notes": notes,
+                        "on_slide_texts": on_slide_texts,
+                        "ink_strokes_count": len(strokes),
+                    })
+            if markers:
+                all_markers[deck.name] = markers
+        return all_markers
+
     def format_annotations_summary_markdown(self) -> str:
-        """Build a Markdown summary of all marked slides, their timestamps, on-slide text labels, and notes."""
-        markers = self.get_timeline_markers()
-        if not markers:
+        """Build a Markdown summary of all marked slides, timestamps, on-slide text labels, and notes across all decks."""
+        all_deck_markers = self.get_all_timeline_markers()
+        if not all_deck_markers:
             return ""
 
         lines = ["### Lecture Slide Timeline & Annotations"]
-        for m in markers:
-            s_num = m["slide_number"]
-            title = m["title"]
-            ts_list = m["timestamps"]
-            ts_str = (
-                " @ " + ", ".join(f"[{format_timestamp(t)}]" for t in ts_list)
-                if ts_list
-                else " (Previewed / Annotated)"
-            )
-            ink_str = f" *(+{m['ink_strokes_count']} ink annotations)*" if m["ink_strokes_count"] else ""
-            lines.append(f"- **Slide {s_num}: {title}**{ts_str}{ink_str}")
-            for txt_item in m.get("on_slide_texts", []):
-                lines.append(f"  - [On-Slide Text] {txt_item}")
-            if m["notes"]:
-                for note_line in m["notes"].splitlines():
-                    lines.append(f"  - {note_line.strip()}")
+        is_multi_deck = len(all_deck_markers) > 1
+
+        for deck_name, markers in all_deck_markers.items():
+            if is_multi_deck:
+                lines.append(f"\n#### Deck: {deck_name}")
+            for m in markers:
+                s_num = m["slide_number"]
+                title = m["title"]
+                ts_list = m["timestamps"]
+                ts_str = (
+                    " @ " + ", ".join(f"[{format_timestamp(t)}]" for t in ts_list)
+                    if ts_list
+                    else " (Previewed / Annotated)"
+                )
+                ink_str = f" *(+{m['ink_strokes_count']} ink annotations)*" if m["ink_strokes_count"] else ""
+                lines.append(f"- **Slide {s_num}: {title}**{ts_str}{ink_str}")
+                for txt_item in m.get("on_slide_texts", []):
+                    lines.append(f"  - [On-Slide Text] {txt_item}")
+                if m["notes"]:
+                    for note_line in m["notes"].splitlines():
+                        lines.append(f"  - {note_line.strip()}")
         return "\n".join(lines)

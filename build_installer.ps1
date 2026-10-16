@@ -64,7 +64,7 @@ Write-Host "[4/4] Compiling Windows Setup Installer (.exe)..." -ForegroundColor 
 New-Item -ItemType Directory -Force -Path "output" | Out-Null
 & $IsccExe "installer.iss"
 
-$InstallerPath = "output\TranscribeNotion-Setup-v1.1.exe"
+$InstallerPath = "output\TranscribeNotion-Setup-v1.2.exe"
 if (Test-Path $InstallerPath) {
     $SizeMB = [math]::Round((Get-Item $InstallerPath).Length / 1MB, 2)
     Write-Host ""

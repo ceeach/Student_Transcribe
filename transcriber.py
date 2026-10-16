@@ -73,6 +73,8 @@ class WhisperWorker(QThread):
         num_speakers: int = -1,
         diarization_threshold: float = 0.5,
         beam_size: int = 1,
+        initial_prompt: Optional[str] = None,
+        hotwords: Optional[str] = None,
         parent: Optional[Any] = None,
     ):
         super().__init__(parent)
@@ -85,6 +87,8 @@ class WhisperWorker(QThread):
         self.num_speakers = num_speakers
         self.diarization_threshold = diarization_threshold
         self.beam_size = int(beam_size)
+        self.initial_prompt = initial_prompt
+        self.hotwords = hotwords
 
         self._is_cancelled = False
 
@@ -204,9 +208,22 @@ class WhisperWorker(QThread):
             }
             if self.language:
                 transcribe_kwargs["language"] = self.language
+            if self.initial_prompt:
+                transcribe_kwargs["initial_prompt"] = self.initial_prompt
+            if self.hotwords:
+                transcribe_kwargs["hotwords"] = self.hotwords
 
             logger.info(f"Starting model.transcribe() with kwargs: {transcribe_kwargs}")
-            segments_gen, info = model.transcribe(self.audio_path, **transcribe_kwargs)
+            try:
+                segments_gen, info = model.transcribe(self.audio_path, **transcribe_kwargs)
+            except TypeError as kw_err:
+                # Fallback if older faster-whisper doesn't support 'hotwords'
+                if "hotwords" in transcribe_kwargs:
+                    logger.warning(f"faster-whisper version does not support 'hotwords', retrying with initial_prompt only: {kw_err}")
+                    transcribe_kwargs.pop("hotwords", None)
+                    segments_gen, info = model.transcribe(self.audio_path, **transcribe_kwargs)
+                else:
+                    raise
             logger.info(f"Detected language: {getattr(info, 'language', 'unknown')} (prob={getattr(info, 'language_probability', 0.0):.2f})")
 
             all_segments: List[Dict[str, Any]] = []

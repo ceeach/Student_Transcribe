@@ -980,6 +980,75 @@ class TestAIStudyAssistantAndNotebookLM(unittest.TestCase):
             self.assertIn("Hello students.", content)
 
 
+class TestSlideOCRAndJargonExtractor(unittest.TestCase):
+    """Test slide text/OCR extraction, course jargon distillation, and Whisper hotwords prompting."""
+
+    def test_distill_course_jargon(self):
+        from slide_extractor import distill_course_jargon
+
+        slide_text = (
+            "[Slide 1] Introduction to Lecture Overview\n"
+            "Today we cover Navier-Stokes equations, Eigenvalue decomposition, and Backpropagation.\n"
+            "[Slide 2] Biochemical Pathways: NADH, FADH2, and Oxidative Phosphorylation in Mitochondria."
+        )
+        terms = distill_course_jargon(slide_text)
+        lower_terms = [t.lower() for t in terms]
+        self.assertIn("navier-stokes", lower_terms)
+        self.assertIn("nadh", lower_terms)
+        self.assertIn("fadh2", lower_terms)
+        # Generic filler words like 'slide', 'lecture', 'today', 'overview' must be filtered out
+        self.assertNotIn("slide", lower_terms)
+        self.assertNotIn("lecture", lower_terms)
+        self.assertNotIn("today", lower_terms)
+
+    def test_build_whisper_context_prompts(self):
+        from slide_extractor import build_whisper_context_prompts
+
+        prompt, hotwords = build_whisper_context_prompts(["Eigenvalue", "Navier-Stokes", "CRISPR"])
+        self.assertIsNotNone(prompt)
+        self.assertIn("Eigenvalue", prompt)
+        self.assertIn("Navier-Stokes", hotwords)
+        self.assertIn("CRISPR", hotwords)
+
+        empty_p, empty_h = build_whisper_context_prompts([])
+        self.assertIsNone(empty_p)
+        self.assertIsNone(empty_h)
+
+    def test_extract_pptx_xml(self):
+        import tempfile
+        import zipfile
+        from pathlib import Path
+        from slide_extractor import extract_text_from_pptx
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            pptx_file = Path(tmp_dir) / "sample_lecture.pptx"
+            slide_xml = (
+                '<?xml version="1.0" encoding="UTF-8"?>'
+                '<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" '
+                'xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">'
+                '<p:cSld><p:spTree><p:sp><p:txBody><a:p>'
+                '<a:r><a:t>Quantum Entanglement and Superposition</a:t></a:r>'
+                '<a:r><a:t>Schrodinger Wave Equation</a:t></a:r>'
+                '</a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>'
+            )
+            with zipfile.ZipFile(pptx_file, "w") as zf:
+                zf.writestr("ppt/slides/slide1.xml", slide_xml)
+
+            extracted = extract_text_from_pptx(str(pptx_file))
+            self.assertIn("Quantum Entanglement", extracted)
+            self.assertIn("Schrodinger Wave Equation", extracted)
+
+    def test_whisper_worker_accepts_jargon_prompts(self):
+        worker = WhisperWorker(
+            audio_path="dummy.wav",
+            model_size="base",
+            initial_prompt="Lecture covering: Eigenvalue, Backpropagation.",
+            hotwords="Eigenvalue, Backpropagation",
+        )
+        self.assertEqual(worker.initial_prompt, "Lecture covering: Eigenvalue, Backpropagation.")
+        self.assertEqual(worker.hotwords, "Eigenvalue, Backpropagation")
+
+
 if __name__ == "__main__":
     unittest.main()
 

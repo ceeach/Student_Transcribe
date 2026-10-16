@@ -11,7 +11,7 @@ import webbrowser
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from PyQt6.QtCore import QSize, Qt, QTime, QTimer, pyqtSignal
+from PyQt6.QtCore import QSize, Qt, QTime, QTimer, QUrl, pyqtSignal
 from PyQt6.QtGui import QFont, QIcon, QColor
 from PyQt6.QtWidgets import (
     QApplication,
@@ -54,9 +54,11 @@ from qfluentwidgets import (
     Theme,
 )
 
+from audio_player import AudioPlayer
 from audio_recorder import AudioRecorder, RECORDINGS_DIR
 from config_manager import config_manager, VIDEO_INBOX_DIR
 from notion_worker import NotionPushWorker, NotionFetchPagesWorker
+from slide_extractor import SlideExtractorWorker, build_whisper_context_prompts
 from transcriber import WhisperWorker, format_timestamp
 from transcript_diff import TranscriptDiffEngine
 from transcript_storage import (
@@ -82,6 +84,33 @@ from video_watcher import VideoFolderWatcher
 from logger import setup_logging, open_log_file
 
 import subprocess
+import tempfile
+
+
+class ClickableTranscriptEdit(TextEdit):
+    """Fluent TextEdit supporting clickable #play:start-end timestamp links and #speaker:Name links."""
+
+    anchor_clicked = pyqtSignal(str)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.viewport().setMouseTracking(True)
+
+    def mouseMoveEvent(self, event):
+        anchor = self.anchorAt(event.pos())
+        if anchor:
+            self.viewport().setCursor(Qt.CursorShape.PointingHandCursor)
+        else:
+            self.viewport().setCursor(Qt.CursorShape.IBeamCursor)
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            anchor = self.anchorAt(event.pos())
+            if anchor:
+                self.anchor_clicked.emit(anchor)
+                return
+        super().mouseReleaseEvent(event)
 
 
 SPEAKER_BADGE_COLORS = [
@@ -95,12 +124,13 @@ SPEAKER_BADGE_COLORS = [
 
 
 def format_speaker_badge_html(speaker: str, speaker_id: int = 0) -> str:
-    """Return HTML span badge formatted for dark UI."""
+    """Return clickable HTML span badge formatted for dark UI."""
     bg, fg = SPEAKER_BADGE_COLORS[speaker_id % len(SPEAKER_BADGE_COLORS)]
     return (
+        f'<a href="speaker:{speaker}" style="text-decoration: none;">'
         f'<span style="background-color: {bg}; color: {fg}; '
         f'font-size: 11px; font-weight: bold; padding: 2px 6px; '
-        f'border-radius: 4px; margin-right: 6px;">{speaker}</span>'
+        f'border-radius: 4px; margin-right: 6px;">{speaker}</span></a>'
     )
 
 
@@ -368,6 +398,36 @@ class TranscribeInterface(QWidget):
         row3.addWidget(self.tags_input, 1)
         meta_layout.addLayout(row3)
 
+        # Slide OCR / Course Jargon row (biases Whisper initial_prompt & hotwords)
+        row4 = QHBoxLayout()
+        row4.setSpacing(8)
+        self.jargon_label = BodyLabel("Course Jargon:", self)
+        self.jargon_label.setToolTip(
+            "Domain vocabulary, acronyms, formulas, and proper nouns passed directly to Whisper's\n"
+            "initial_prompt & hotwords so technical terms are spelled accurately."
+        )
+        row4.addWidget(self.jargon_label)
+
+        self.jargon_input = LineEdit(self)
+        self.jargon_input.setPlaceholderText(
+            "Import lecture slides (.pdf, .pptx, images) via OCR or type custom terms (e.g., Eigenvalue, Navier-Stokes, NADH)..."
+        )
+        self.jargon_input.setClearButtonEnabled(True)
+        row4.addWidget(self.jargon_input, 1)
+
+        self.import_slides_btn = PushButton("📊 Import Slides / OCR...", self)
+        self.import_slides_btn.setToolTip(
+            "Extract course jargon and technical vocabulary from PDF slides, PowerPoint (.pptx),\n"
+            "or slide screenshots (.png, .jpg) using hybrid text + Windows OCR."
+        )
+        row4.addWidget(self.import_slides_btn)
+
+        self.paste_slide_btn = TransparentPushButton("📋 Paste Slide", self)
+        self.paste_slide_btn.setToolTip("Run OCR on a slide screenshot copied to your clipboard")
+        row4.addWidget(self.paste_slide_btn)
+
+        meta_layout.addLayout(row4)
+
         parent_layout.addWidget(meta_card)
 
     def _create_transcript_card(self, parent_layout):
@@ -381,7 +441,7 @@ class TranscribeInterface(QWidget):
         output_header_left = QVBoxLayout()
         output_header_left.setSpacing(2)
         output_header_left.addWidget(StrongBodyLabel("Live Transcript & AI Study Guide", self))
-        self.stats_label = CaptionLabel("0 segments | 0 words", self)
+        self.stats_label = CaptionLabel("0 segments | 0 words  •  Tip: Click any [timestamp] to play audio or [Speaker] badge to rename", self)
         output_header_left.addWidget(self.stats_label)
         output_header.addLayout(output_header_left, 1)
 
@@ -408,6 +468,16 @@ class TranscribeInterface(QWidget):
 
         output_header.addWidget(self.view_transcript_btn)
         output_header.addWidget(self.view_study_btn)
+
+        self.stop_audio_btn = PushButton("⏹ Stop Audio", self)
+        self.stop_audio_btn.setVisible(False)
+        self.stop_audio_btn.setToolTip("Stop currently playing audio snippet")
+        output_header.addWidget(self.stop_audio_btn)
+
+        self.rename_speaker_btn = PushButton("🗣 Rename Speaker", self)
+        self.rename_speaker_btn.setEnabled(False)
+        self.rename_speaker_btn.setToolTip("Rename a diarized speaker (e.g. 'Speaker 1' -> 'Prof. Smith') across the entire transcript")
+        output_header.addWidget(self.rename_speaker_btn)
 
         self.copy_btn = PushButton("📋 Copy", self)
         self.copy_btn.setFixedWidth(80)
@@ -461,9 +531,11 @@ class TranscribeInterface(QWidget):
         # Stacked view: page 0 = transcript, page 1 = study notes
         self.preview_stack = QStackedWidget(self)
 
-        self.output_text = TextEdit(self)
+        self.output_text = ClickableTranscriptEdit(self)
         self.output_text.setReadOnly(True)
-        self.output_text.setPlaceholderText("Transcribed text with segment timestamps will appear here...")
+        self.output_text.setPlaceholderText(
+            "Transcribed text with clickable [mm:ss] audio timestamps and speaker badges will appear here..."
+        )
         self.preview_stack.addWidget(self.output_text)
 
         self.study_notes_text = TextEdit(self)
@@ -550,7 +622,7 @@ class MainWindow(FluentWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Transcribe Notion v1.1.0")
+        self.setWindowTitle("Transcribe Notion v1.2.0")
         self.resize(960, 820)
         self.setMinimumSize(780, 680)
 
@@ -576,6 +648,14 @@ class MainWindow(FluentWindow):
         self._pages_worker: Optional[NotionFetchPagesWorker] = None
         self._study_notes: str = ""
         self._ai_worker: Optional[AIStudyNotesWorker] = None
+        self._slide_worker: Optional[SlideExtractorWorker] = None
+        self._extracted_slide_text: str = ""
+
+        # Audio Snippet Player for click-to-play timestamps
+        self.audio_player = AudioPlayer(self)
+        self.audio_player.playback_started.connect(self._on_snippet_playback_started)
+        self.audio_player.playback_finished.connect(self._on_snippet_playback_finished)
+        self.audio_player.playback_error.connect(self._on_snippet_playback_error)
 
         # Audio Recorder
         init_source = config_manager.get("audio_source", "mic")
@@ -690,13 +770,18 @@ class MainWindow(FluentWindow):
         # Recordings list
         self.recordings_list.recording_selected.connect(self._on_recording_loaded)
 
-        # Metadata
+        # Metadata & Slide OCR
         tp.target_page_combo.currentIndexChanged.connect(self._on_target_page_changed)
         tp.today_filter_cb.toggled.connect(self._repopulate_page_dropdown)
         tp.clear_filter_btn.clicked.connect(lambda: tp.today_filter_cb.setChecked(False))
         tp.refresh_pages_btn.clicked.connect(self._fetch_notion_pages)
+        tp.import_slides_btn.clicked.connect(self._import_slides_for_ocr)
+        tp.paste_slide_btn.clicked.connect(self._paste_slide_from_clipboard)
 
-        # Transcript actions
+        # Interactive transcript actions (click timestamp to play, click speaker to rename)
+        tp.output_text.anchor_clicked.connect(self._on_transcript_anchor_clicked)
+        tp.stop_audio_btn.clicked.connect(self.audio_player.stop)
+        tp.rename_speaker_btn.clicked.connect(self._prompt_rename_speaker)
         tp.copy_btn.clicked.connect(self._copy_to_clipboard)
         tp._export_actions["txt"].triggered.connect(lambda: self._export_transcript("txt"))
         tp._export_actions["srt"].triggered.connect(lambda: self._export_transcript("srt"))
@@ -824,6 +909,26 @@ class MainWindow(FluentWindow):
         return self._tp.tags_input
 
     @property
+    def jargon_input(self):
+        return self._tp.jargon_input
+
+    @property
+    def import_slides_btn(self):
+        return self._tp.import_slides_btn
+
+    @property
+    def paste_slide_btn(self):
+        return self._tp.paste_slide_btn
+
+    @property
+    def rename_speaker_btn(self):
+        return self._tp.rename_speaker_btn
+
+    @property
+    def stop_audio_btn(self):
+        return self._tp.stop_audio_btn
+
+    @property
     def quick_model_combo(self):
         return self._tp.quick_model_combo
 
@@ -884,13 +989,20 @@ class MainWindow(FluentWindow):
         self.video_watcher.queue_video(video_path)
 
     def _render_transcript_segments(self, segments: List[Dict[str, Any]]):
-        """Render segment list into output text preview with speaker badges and timestamps."""
+        """Render segment list into output text preview with clickable speaker badges and audio timestamps."""
         self.output_text.clear()
         has_speakers = any("speaker" in seg for seg in segments)
+        self.rename_speaker_btn.setEnabled(len(segments) > 0)
 
         for seg in segments:
             ts = seg.get("timestamp_str", "")
+            start_s = float(seg.get("start", 0.0))
+            end_s = float(seg.get("end", start_s + 2.0))
             text = seg.get("text", "").strip()
+            ts_link = (
+                f'<a href="play:{start_s:.2f}-{end_s:.2f}" style="text-decoration: none;">'
+                f'<span style="color: #38bdf8; font-weight: bold; font-family: monospace; margin-right: 6px;">▶ {ts}</span></a>'
+            )
             if has_speakers and "speaker" in seg:
                 speaker = seg.get("speaker", "Speaker 1")
                 spk_id = seg.get("speaker_id", 0)
@@ -898,14 +1010,14 @@ class MainWindow(FluentWindow):
                 html_line = (
                     f'<p style="margin: 5px 0; line-height: 1.5;">'
                     f'{badge_html}'
-                    f'<span style="color: #38bdf8; font-weight: bold; font-family: monospace; margin-right: 6px;">{ts}</span>'
+                    f'{ts_link}'
                     f'<span style="color: #f8fafc;">{text}</span>'
                     f'</p>'
                 )
             else:
                 html_line = (
                     f'<p style="margin: 4px 0;">'
-                    f'<span style="color: #38bdf8; font-weight: bold; font-family: monospace;">{ts}</span> '
+                    f'{ts_link} '
                     f'<span style="color: #f8fafc;">{text}</span>'
                     f'</p>'
                 )
@@ -915,9 +1027,9 @@ class MainWindow(FluentWindow):
         unique_speakers = len(set(s.get("speaker", "Speaker 1") for s in segments)) if segments else 0
         words = sum(len(s.get("text", "").split()) for s in segments)
         if unique_speakers > 1:
-            self.stats_label.setText(f"{len(segments)} segments | {words} words | 👥 {unique_speakers} speakers")
+            self.stats_label.setText(f"{len(segments)} segments | {words} words | 👥 {unique_speakers} speakers  •  Click ▶ [time] to play or [Speaker] to rename")
         else:
-            self.stats_label.setText(f"{len(segments)} segments | {words} words")
+            self.stats_label.setText(f"{len(segments)} segments | {words} words  •  Click ▶ [time] to play audio")
 
     def _load_saved_transcript(self, file_path: str, prompt_append: bool = True) -> bool:
         """Check for and load any existing local transcript for this audio file."""
@@ -1407,6 +1519,11 @@ class MainWindow(FluentWindow):
         diarization_threshold = float(config_manager.get("diarization_threshold", 0.5))
         beam_size = int(config_manager.get("beam_size", 1))
 
+        # Build Whisper initial_prompt and hotwords from Course Jargon input
+        raw_jargon = self.jargon_input.text().strip()
+        jargon_terms = [t.strip() for t in raw_jargon.split(",") if t.strip()]
+        initial_prompt, hotwords = build_whisper_context_prompts(jargon_terms)
+
         self._transcription_worker = WhisperWorker(
             audio_path=audio_path,
             model_size=model_size,
@@ -1416,6 +1533,8 @@ class MainWindow(FluentWindow):
             num_speakers=num_speakers,
             diarization_threshold=diarization_threshold,
             beam_size=beam_size,
+            initial_prompt=initial_prompt,
+            hotwords=hotwords,
             parent=self,
         )
         self._transcription_worker.status_changed.connect(self._on_worker_status)
@@ -1455,10 +1574,13 @@ class MainWindow(FluentWindow):
         self._transcribed_segments.append(seg)
 
         ts = seg.get("timestamp_str", "")
+        start_s = float(seg.get("start", 0.0))
+        end_s = float(seg.get("end", start_s + 2.0))
         text = seg.get("text", "")
         html_segment = (
             f'<p style="margin: 4px 0;">'
-            f'<span style="color: #38bdf8; font-weight: bold; font-family: monospace;">{ts}</span> '
+            f'<a href="play:{start_s:.2f}-{end_s:.2f}" style="text-decoration: none;">'
+            f'<span style="color: #38bdf8; font-weight: bold; font-family: monospace;">▶ {ts}</span></a> '
             f'<span style="color: #f8fafc;">{text}</span>'
             f'</p>'
         )
@@ -1477,6 +1599,7 @@ class MainWindow(FluentWindow):
         self.compare_models_btn.setEnabled(len(segments) > 0)
         self.study_guide_btn.setEnabled(len(segments) > 0)
         self.export_btn.setEnabled(len(segments) > 0)
+        self.rename_speaker_btn.setEnabled(len(segments) > 0)
 
         self._render_transcript_segments(segments)
 
@@ -1583,6 +1706,10 @@ class MainWindow(FluentWindow):
         diarization_threshold = float(config_manager.get("diarization_threshold", 0.5))
         beam_size = int(config_manager.get("beam_size", 1))
 
+        raw_jargon = self.jargon_input.text().strip()
+        jargon_terms = [t.strip() for t in raw_jargon.split(",") if t.strip()]
+        initial_prompt, hotwords = build_whisper_context_prompts(jargon_terms)
+
         self._comparison_worker = WhisperWorker(
             audio_path=self._current_audio_file,
             model_size=model_b_name,
@@ -1592,6 +1719,8 @@ class MainWindow(FluentWindow):
             num_speakers=num_speakers,
             diarization_threshold=diarization_threshold,
             beam_size=beam_size,
+            initial_prompt=initial_prompt,
+            hotwords=hotwords,
             parent=self,
         )
         self._comparison_worker.status_changed.connect(self._on_worker_status)
@@ -1972,6 +2101,7 @@ class MainWindow(FluentWindow):
         unique_speakers = list(dict.fromkeys(s.get("speaker", "Speaker 1") for s in self._transcribed_segments if "speaker" in s))
         speaker_count = len(unique_speakers) or 1
         study_notes = self._study_notes or self.study_notes_text.toPlainText().strip()
+        course_jargon = self.jargon_input.text().strip()
 
         formatted = AIService.format_for_notebooklm(
             title=title,
@@ -1982,16 +2112,254 @@ class MainWindow(FluentWindow):
             tags=tags,
             summary=study_notes,
             transcript=self._transcription_text,
+            slide_context=self._extracted_slide_text,
+            course_jargon=course_jargon,
         )
 
         QApplication.clipboard().setText(formatted)
         InfoBar.success(
             title="Copied for NotebookLM",
-            content="Formatted source document copied to clipboard! You can now paste it into NotebookLM.",
+            content="Formatted source document (with transcript & slide context) copied to clipboard!",
             isClosable=True,
             duration=4000,
             position=InfoBarPosition.BOTTOM_RIGHT,
             parent=self,
+        )
+
+    # ==========================
+    # Slide OCR & Course Jargon
+    # ==========================
+    def _import_slides_for_ocr(self):
+        """Open file dialog to import PDF, PPTX, or slide images and extract course jargon via OCR."""
+        files, _ = QFileDialog.getOpenFileNames(
+            self,
+            "Select Lecture Slides or Screenshots for OCR Jargon Extraction",
+            "",
+            "Slides & Images (*.pdf *.pptx *.png *.jpg *.jpeg *.bmp *.webp *.txt *.md);;"
+            "PDF & PowerPoint (*.pdf *.pptx);;"
+            "Images & Screenshots (*.png *.jpg *.jpeg *.bmp *.webp);;"
+            "All Files (*.*)",
+        )
+        if not files:
+            return
+        self._run_slide_extraction(files)
+
+    def _paste_slide_from_clipboard(self):
+        """Extract course jargon from a slide image or text copied to the clipboard."""
+        clipboard = QApplication.clipboard()
+        mime = clipboard.mimeData()
+        if mime.hasImage():
+            image = clipboard.image()
+            if not image.isNull():
+                tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+                tmp.close()
+                image.save(tmp.name, "PNG")
+                self._run_slide_extraction([tmp.name])
+                return
+        if mime.hasUrls():
+            local_files = [u.toLocalFile() for u in mime.urls() if u.isLocalFile()]
+            if local_files:
+                self._run_slide_extraction(local_files)
+                return
+        if mime.hasText() and mime.text().strip():
+            from slide_extractor import distill_course_jargon
+            terms = distill_course_jargon(mime.text())
+            if terms:
+                self._merge_jargon_terms(terms)
+                InfoBar.success(
+                    title="Extracted Jargon from Clipboard Text",
+                    content=f"Added {len(terms)} domain terms to Course Jargon.",
+                    isClosable=True, duration=3500, position=InfoBarPosition.TOP, parent=self,
+                )
+                return
+        InfoBar.info(
+            title="No Slide Image or Text in Clipboard",
+            content="Take a screenshot of a slide (Win+Shift+S) or copy slide text first, then click Paste Slide.",
+            isClosable=True, duration=4000, position=InfoBarPosition.TOP, parent=self,
+        )
+
+    def _run_slide_extraction(self, file_paths: List[str]):
+        self.import_slides_btn.setEnabled(False)
+        self.import_slides_btn.setText("⏳ Extracting OCR...")
+        self.paste_slide_btn.setEnabled(False)
+        self.status_label.setText(f"Extracting text & OCR jargon from {len(file_paths)} file(s)...")
+
+        self._slide_worker = SlideExtractorWorker(file_paths, parent=self)
+        self._slide_worker.status_changed.connect(self._on_worker_status)
+        self._slide_worker.extraction_completed.connect(self._on_slide_extraction_completed)
+        self._slide_worker.error_occurred.connect(self._on_slide_extraction_error)
+        self._slide_worker.start()
+
+    def _merge_jargon_terms(self, new_terms: List[str]):
+        existing_raw = self.jargon_input.text().strip()
+        existing_list = [t.strip() for t in existing_raw.split(",") if t.strip()]
+        seen = {t.lower() for t in existing_list}
+        for term in new_terms:
+            if term.lower() not in seen:
+                existing_list.append(term)
+                seen.add(term.lower())
+        self.jargon_input.setText(", ".join(existing_list[:85]))
+
+    def _on_slide_extraction_completed(self, jargon_terms: List[str], raw_text: str, file_names: List[str]):
+        self.import_slides_btn.setEnabled(True)
+        self.import_slides_btn.setText("📊 Import Slides / OCR...")
+        self.paste_slide_btn.setEnabled(True)
+
+        if raw_text:
+            if self._extracted_slide_text:
+                self._extracted_slide_text += "\n\n" + raw_text
+            else:
+                self._extracted_slide_text = raw_text
+
+        if jargon_terms:
+            self._merge_jargon_terms(jargon_terms)
+            files_label = ", ".join(file_names[:2]) + (f" +{len(file_names)-2} more" if len(file_names) > 2 else "")
+            self.status_label.setText(
+                f"Extracted {len(jargon_terms)} course jargon terms from {files_label} for Whisper accuracy."
+            )
+            InfoBar.success(
+                title="Slide OCR & Jargon Ready",
+                content=f"Extracted {len(jargon_terms)} technical terms from {files_label}. Whisper will now prioritize these spellings!",
+                isClosable=True, duration=5000, position=InfoBarPosition.TOP, parent=self,
+            )
+        else:
+            self.status_label.setText("No domain jargon detected in the selected slide(s).")
+            InfoBar.warning(
+                title="No Jargon Found",
+                content="Could not detect technical text in the selected file(s).",
+                isClosable=True, duration=4000, position=InfoBarPosition.TOP, parent=self,
+            )
+
+    def _on_slide_extraction_error(self, err_msg: str):
+        self.import_slides_btn.setEnabled(True)
+        self.import_slides_btn.setText("📊 Import Slides / OCR...")
+        self.paste_slide_btn.setEnabled(True)
+        self.status_label.setText("Slide OCR extraction failed.")
+        InfoBar.error(
+            title="Slide Extraction Error",
+            content=f"Could not extract text from slides: {err_msg[:200]}",
+            isClosable=True, duration=6000, position=InfoBarPosition.TOP, parent=self,
+        )
+
+    # ==========================
+    # Interactive Audio Sync & Speaker Renaming
+    # ==========================
+    def _on_transcript_anchor_clicked(self, anchor: str):
+        """Handle clicks on timestamp links (`play:start-end`) or speaker badges (`speaker:Name`)."""
+        if anchor.startswith("play:"):
+            if not self._current_audio_file or not os.path.exists(self._current_audio_file):
+                InfoBar.warning(
+                    title="Audio File Unavailable",
+                    content="No local audio file is associated with this transcript.",
+                    isClosable=True, duration=3000, position=InfoBarPosition.TOP, parent=self,
+                )
+                return
+            try:
+                span = anchor.split("play:", 1)[1]
+                start_str, end_str = span.split("-", 1)
+                start_s = float(start_str)
+                end_s = float(end_str)
+                self.audio_player.play_snippet(
+                    self._current_audio_file,
+                    start_sec=start_s,
+                    end_sec=end_s,
+                    pad_before=0.3,
+                    pad_after=0.5,
+                )
+            except Exception as e:
+                self.status_label.setText(f"Could not play segment: {e}")
+        elif anchor.startswith("speaker:"):
+            old_speaker = anchor.split("speaker:", 1)[1]
+            self._rename_specific_speaker(old_speaker)
+
+    def _on_snippet_playback_started(self, start_sec: float, end_sec: float):
+        self.stop_audio_btn.setVisible(True)
+        self.status_label.setText(
+            f"🔊 Playing audio segment [{format_timestamp(start_sec)} - {format_timestamp(end_sec)}]..."
+        )
+
+    def _on_snippet_playback_finished(self):
+        self.stop_audio_btn.setVisible(False)
+        self.status_label.setText("Audio playback finished.")
+
+    def _on_snippet_playback_error(self, err_msg: str):
+        self.stop_audio_btn.setVisible(False)
+        self.status_label.setText(f"Audio playback error: {err_msg}")
+
+    def _prompt_rename_speaker(self):
+        """Let user pick a speaker from current transcript and rename them across all segments."""
+        if not self._transcribed_segments:
+            return
+        speakers = list(dict.fromkeys(
+            s.get("speaker", "Speaker 1") for s in self._transcribed_segments
+        ))
+        if not speakers:
+            speakers = ["Speaker 1"]
+
+        if len(speakers) == 1:
+            self._rename_specific_speaker(speakers[0])
+        else:
+            chosen, ok = QInputDialog.getItem(
+                self,
+                "Select Speaker to Rename",
+                "Choose which speaker label you want to rename across the transcript:",
+                speakers,
+                0,
+                False,
+            )
+            if ok and chosen:
+                self._rename_specific_speaker(chosen)
+
+    def _rename_specific_speaker(self, old_name: str):
+        new_name, ok = QInputDialog.getText(
+            self,
+            "Rename Speaker",
+            f"Enter new name for '{old_name}' (e.g., Prof. Smith, TA, Student):",
+            text=old_name,
+        )
+        new_name = (new_name or "").strip()
+        if not ok or not new_name or new_name == old_name:
+            return
+
+        count = 0
+        lines = []
+        for seg in self._transcribed_segments:
+            curr_spk = seg.get("speaker", "Speaker 1")
+            if curr_spk == old_name:
+                seg["speaker"] = new_name
+                count += 1
+            elif "speaker" not in seg and old_name == "Speaker 1":
+                seg["speaker"] = new_name
+                seg["speaker_id"] = 0
+                count += 1
+            spk_prefix = f"[{seg.get('speaker')}] " if "speaker" in seg else ""
+            lines.append(f"{spk_prefix}{seg.get('timestamp_str', '')} {seg.get('text', '')}")
+
+        self._transcription_text = "\n".join(lines)
+        self._render_transcript_segments(self._transcribed_segments)
+
+        # Persist updated speaker names to local transcript storage
+        if self._current_audio_file:
+            try:
+                save_transcript(
+                    audio_path=self._current_audio_file,
+                    segments=self._transcribed_segments,
+                    full_text=self._transcription_text,
+                    model=self._last_model_name,
+                    device=config_manager.get("whisper_device", "cuda"),
+                    compute_type=config_manager.get("compute_type", "float16"),
+                    language=config_manager.get("whisper_language") or None,
+                    study_notes=self._study_notes or self.study_notes_text.toPlainText().strip(),
+                )
+                self.recordings_list.refresh()
+            except Exception:
+                pass
+
+        self.status_label.setText(f"Renamed '{old_name}' → '{new_name}' across {count} segment(s).")
+        InfoBar.success(
+            title="Speaker Renamed",
+            content=f"Updated '{old_name}' to '{new_name}' across {count} segment(s).",
+            isClosable=True, duration=3000, position=InfoBarPosition.TOP, parent=self,
         )
 
     def _generate_study_guide(self):
@@ -2099,6 +2467,8 @@ class MainWindow(FluentWindow):
             apply_windows_taskbar_icon(self, self._icon_path)
 
     def closeEvent(self, event):
+        if hasattr(self, "audio_player") and self.audio_player:
+            self.audio_player.stop()
         if hasattr(self, "video_watcher") and self.video_watcher:
             self.video_watcher.stop_watching()
         if hasattr(self, "_pages_worker") and self._pages_worker:
@@ -2123,7 +2493,7 @@ def main():
     if sys.platform == "win32":
         try:
             import ctypes
-            myappid = "transcribenotion.app.1.1.0"
+            myappid = "transcribenotion.app.1.2.0"
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
         except Exception:
             pass

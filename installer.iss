@@ -2,7 +2,7 @@
 ; NotionTranscribe Windows Installer
 
 #define MyAppName "Transcribe Notion"
-#define MyAppVersion "1.1.0"
+#define MyAppVersion "1.2.0"
 #define MyAppPublisher "Transcribe Notion Team"
 #define MyAppExeName "Transcribe Notion.exe"
 
@@ -16,7 +16,7 @@ UninstallDisplayIcon={app}\{#MyAppExeName}
 DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
 OutputDir=output
-OutputBaseFilename=TranscribeNotion-Setup-v1.1
+OutputBaseFilename=TranscribeNotion-Setup-v1.2
 SetupIconFile=assets\icon.ico
 SolidCompression=yes
 Compression=lzma2/max

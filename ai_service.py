@@ -174,9 +174,11 @@ class AIService:
         tags: str,
         summary: str,
         transcript: str,
+        slide_context: str = "",
+        course_jargon: str = "",
     ) -> str:
         """Format the content specifically for NotebookLM ingestion."""
-        return NOTEBOOKLM_HEADER_TEMPLATE.format(
+        base = NOTEBOOKLM_HEADER_TEMPLATE.format(
             title=title,
             date=date,
             duration=duration,
@@ -186,3 +188,11 @@ class AIService:
             summary=summary or "Study notes not generated yet.",
             transcript=transcript,
         )
+        extras = []
+        if course_jargon and course_jargon.strip():
+            extras.append(f"## 🔤 Course Vocabulary & Key Terms (from Slides)\n{course_jargon.strip()}")
+        if slide_context and slide_context.strip():
+            extras.append(f"## 📊 Extracted Lecture Slides Content\n{slide_context.strip()}")
+        if extras:
+            return base.rstrip() + "\n\n---\n\n" + "\n\n---\n\n".join(extras) + "\n"
+        return base

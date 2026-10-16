@@ -33,6 +33,7 @@ from qfluentwidgets import (
     BodyLabel,
     CaptionLabel,
     CardWidget,
+    LineEdit,
     MessageBox,
     PrimaryPushButton,
     PushButton,
@@ -92,7 +93,13 @@ class RecordingsListWidget(QWidget):
         # Top Toolbar
         top_bar = QHBoxLayout()
         title_label = SubtitleLabel("Recorded Audio Archive & History", self)
-        top_bar.addWidget(title_label, 1)
+        top_bar.addWidget(title_label)
+
+        self.search_input = LineEdit(self)
+        self.search_input.setPlaceholderText("🔍 Search across filenames, transcripts & notes...")
+        self.search_input.setClearButtonEnabled(True)
+        self.search_input.textChanged.connect(self._on_search_changed)
+        top_bar.addWidget(self.search_input, 1)
 
         self.view_logs_btn = PushButton("📋 View App Logs", self)
         self.view_logs_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -259,6 +266,7 @@ class RecordingsListWidget(QWidget):
             item_size.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
 
             # Check transcript status
+            full_transcript_text = ""
             tr_exists = has_transcript(str(fpath))
             if tr_exists:
                 t_data = load_transcript(str(fpath))
@@ -266,6 +274,7 @@ class RecordingsListWidget(QWidget):
                     wc = t_data.get("word_count", 0)
                     spk = t_data.get("speaker_count", 1)
                     pushed = t_data.get("notion", {}).get("pushed", False)
+                    full_transcript_text = (t_data.get("full_text", "") + " " + t_data.get("study_notes", "")).lower()
                     if pushed:
                         item_tr = QTableWidgetItem(f"✅ Synced ({wc}w)")
                         item_tr.setForeground(QColor("#10b981"))
@@ -297,6 +306,10 @@ class RecordingsListWidget(QWidget):
                 item_notes = QTableWidgetItem("—")
                 item_notes.setForeground(QColor("#64748b"))
 
+            # Store combined searchable corpus in UserRole + 1 on item_name
+            searchable_blob = f"{fpath.name.lower()} {dt_str.lower()} {notes_str.lower()} {full_transcript_text}"
+            item_name.setData(Qt.ItemDataRole.UserRole + 1, searchable_blob)
+
             self.table.setItem(row, 0, item_name)
             self.table.setItem(row, 1, item_date)
             self.table.setItem(row, 2, item_duration)
@@ -304,8 +317,27 @@ class RecordingsListWidget(QWidget):
             self.table.setItem(row, 4, item_tr)
             self.table.setItem(row, 5, item_notes)
 
-        self.count_label.setText(f"{len(files)} recording(s) in archive")
+        self._apply_search_filter(self.search_input.text() if hasattr(self, "search_input") else "")
         self._on_selection_changed()
+
+    def _on_search_changed(self, query: str):
+        self._apply_search_filter(query)
+
+    def _apply_search_filter(self, query: str):
+        q = (query or "").strip().lower()
+        total = self.table.rowCount()
+        visible = 0
+        for r in range(total):
+            item = self.table.item(r, 0)
+            blob = (item.data(Qt.ItemDataRole.UserRole + 1) or "") if item else ""
+            match = (not q) or (q in blob)
+            self.table.setRowHidden(r, not match)
+            if match:
+                visible += 1
+        if q:
+            self.count_label.setText(f"Showing {visible} of {total} recording(s) matching '{query.strip()}'")
+        else:
+            self.count_label.setText(f"{total} recording(s) in archive")
 
     def _get_selected_path(self) -> Optional[str]:
         current_row = self.table.currentRow()

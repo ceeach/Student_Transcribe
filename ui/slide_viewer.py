@@ -119,7 +119,7 @@ class AnnotatableSlideCanvas(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setMinimumSize(360, 240)
+        self.setMinimumSize(280, 160)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setMouseTracking(True)
 
@@ -976,70 +976,79 @@ class SlideCompanionWidget(QWidget):
 
         # 1. Left: Slide List (for fast preview browsing)
         self.slide_list = ListWidget(self)
-        self.slide_list.setMinimumWidth(160)
-        self.slide_list.setMaximumWidth(320)
+        self.slide_list.setMinimumWidth(110)
+        self.slide_list.setMaximumWidth(280)
         self.slide_list.currentRowChanged.connect(self._on_list_row_changed)
         self.splitter.addWidget(self.slide_list)
 
         # 2. Center: Upgraded PDF Editor Card + Bottom-Middle Navigation Bar
         canvas_card = CardWidget(self)
         canvas_layout = QVBoxLayout(canvas_card)
-        canvas_layout.setContentsMargins(8, 8, 8, 8)
-        canvas_layout.setSpacing(6)
+        canvas_layout.setContentsMargins(6, 6, 6, 6)
+        canvas_layout.setSpacing(4)
 
-        # ---- Rich PDF Annotation Editor Toolbar ----
-        draw_bar = QHBoxLayout()
-        draw_bar.setSpacing(5)
+        # ---- Tier 1: Drawing & Shape Tools + Color & Size Pickers ----
+        draw_bar_1 = QHBoxLayout()
+        draw_bar_1.setContentsMargins(0, 0, 0, 0)
+        draw_bar_1.setSpacing(4)
 
-        # Quick Tool Toggle Buttons (Pen, Highlighter, Text, Shapes, Select, Eraser)
-        self.pen_tool_btn = TogglePushButton("Pen", self)
+        # Compact tool buttons (36x30px) with icons and tooltips
+        self.pen_tool_btn = TogglePushButton(self)
         self.pen_tool_btn.setIcon(FIF.PENCIL_INK)
+        self.pen_tool_btn.setFixedSize(36, 30)
         self.pen_tool_btn.setChecked(True)
-        self.pen_tool_btn.setToolTip("Freehand Ink Pen")
+        self.pen_tool_btn.setToolTip("Pen (Freehand Drawing)")
         self.pen_tool_btn.clicked.connect(lambda: self._select_editor_tool("pen"))
-        draw_bar.addWidget(self.pen_tool_btn)
+        draw_bar_1.addWidget(self.pen_tool_btn)
 
-        self.highlighter_tool_btn = TogglePushButton("Highlighter", self)
+        self.highlighter_tool_btn = TogglePushButton(self)
         self.highlighter_tool_btn.setIcon(FIF.HIGHTLIGHT)
-        self.highlighter_tool_btn.setToolTip("Translucent Marker Highlighter")
+        self.highlighter_tool_btn.setFixedSize(36, 30)
+        self.highlighter_tool_btn.setToolTip("Highlighter (Translucent Marker)")
         self.highlighter_tool_btn.clicked.connect(lambda: self._select_editor_tool("highlighter"))
-        draw_bar.addWidget(self.highlighter_tool_btn)
+        draw_bar_1.addWidget(self.highlighter_tool_btn)
 
-        self.text_tool_btn = TogglePushButton("Text", self)
+        self.text_tool_btn = TogglePushButton(self)
         self.text_tool_btn.setIcon(FIF.FONT)
-        self.text_tool_btn.setToolTip("Click anywhere on the slide to add a text box (or double-click existing text to edit)")
+        self.text_tool_btn.setFixedSize(36, 30)
+        self.text_tool_btn.setToolTip("Text Box (Click slide to type text, double-click existing text to edit)")
         self.text_tool_btn.clicked.connect(lambda: self._select_editor_tool("text"))
-        draw_bar.addWidget(self.text_tool_btn)
+        draw_bar_1.addWidget(self.text_tool_btn)
 
-        self.rect_tool_btn = TogglePushButton("Box", self)
+        self.rect_tool_btn = TogglePushButton(self)
         self.rect_tool_btn.setIcon(create_shape_icon("rect"))
-        self.rect_tool_btn.setToolTip("Draw a rectangle box around formulas or diagrams")
+        self.rect_tool_btn.setFixedSize(36, 30)
+        self.rect_tool_btn.setToolTip("Box / Rectangle Shape")
         self.rect_tool_btn.clicked.connect(lambda: self._select_editor_tool("rect"))
-        draw_bar.addWidget(self.rect_tool_btn)
+        draw_bar_1.addWidget(self.rect_tool_btn)
 
-        self.ellipse_tool_btn = TogglePushButton("Circle", self)
+        self.ellipse_tool_btn = TogglePushButton(self)
         self.ellipse_tool_btn.setIcon(create_shape_icon("ellipse"))
-        self.ellipse_tool_btn.setToolTip("Draw a circle/ellipse around key terms")
+        self.ellipse_tool_btn.setFixedSize(36, 30)
+        self.ellipse_tool_btn.setToolTip("Circle / Ellipse Shape")
         self.ellipse_tool_btn.clicked.connect(lambda: self._select_editor_tool("ellipse"))
-        draw_bar.addWidget(self.ellipse_tool_btn)
+        draw_bar_1.addWidget(self.ellipse_tool_btn)
 
-        self.arrow_tool_btn = TogglePushButton("Arrow", self)
+        self.arrow_tool_btn = TogglePushButton(self)
         self.arrow_tool_btn.setIcon(create_shape_icon("arrow"))
-        self.arrow_tool_btn.setToolTip("Draw a directional arrow")
+        self.arrow_tool_btn.setFixedSize(36, 30)
+        self.arrow_tool_btn.setToolTip("Arrow Shape")
         self.arrow_tool_btn.clicked.connect(lambda: self._select_editor_tool("arrow"))
-        draw_bar.addWidget(self.arrow_tool_btn)
+        draw_bar_1.addWidget(self.arrow_tool_btn)
 
-        self.select_tool_btn = TogglePushButton("Move", self)
+        self.select_tool_btn = TogglePushButton(self)
         self.select_tool_btn.setIcon(FIF.MOVE)
-        self.select_tool_btn.setToolTip("Select and drag annotations on the slide (press Delete to remove selected)")
+        self.select_tool_btn.setFixedSize(36, 30)
+        self.select_tool_btn.setToolTip("Move / Select Tool (Drag to reposition, Delete key to remove)")
         self.select_tool_btn.clicked.connect(lambda: self._select_editor_tool("select"))
-        draw_bar.addWidget(self.select_tool_btn)
+        draw_bar_1.addWidget(self.select_tool_btn)
 
-        self.eraser_tool_btn = TogglePushButton("Eraser", self)
+        self.eraser_tool_btn = TogglePushButton(self)
         self.eraser_tool_btn.setIcon(FIF.ERASE_TOOL)
-        self.eraser_tool_btn.setToolTip("Click or drag over any annotation to erase it")
+        self.eraser_tool_btn.setFixedSize(36, 30)
+        self.eraser_tool_btn.setToolTip("Eraser (Click or drag over annotations to delete)")
         self.eraser_tool_btn.clicked.connect(lambda: self._select_editor_tool("eraser"))
-        draw_bar.addWidget(self.eraser_tool_btn)
+        draw_bar_1.addWidget(self.eraser_tool_btn)
 
         self._tool_buttons = {
             "pen": self.pen_tool_btn,
@@ -1052,16 +1061,17 @@ class SlideCompanionWidget(QWidget):
             "eraser": self.eraser_tool_btn,
         }
 
-        # Keep tool_combo synced for programmatic access
         self.tool_combo = ComboBox(self)
         self.tool_combo.addItems(["Pen", "Highlighter", "Text", "Box", "Circle", "Arrow", "Move", "Eraser", "View Only"])
         self.tool_combo.setVisible(False)
         self.tool_combo.currentIndexChanged.connect(self._on_tool_changed)
 
-        draw_bar.addStretch(1)
+        draw_bar_1.addStretch(1)
 
-        # Color Selector with vector color swatch icons (no emojis)
+        # Color Selector with swatches
         self.color_combo = ComboBox(self)
+        self.color_combo.setFixedHeight(30)
+        self.color_combo.setMinimumWidth(95)
         color_presets = [
             ("Red", "#ef4444"),
             ("Yellow", "#facc15"),
@@ -1074,63 +1084,92 @@ class SlideCompanionWidget(QWidget):
         for label, hex_val in color_presets:
             self.color_combo.addItem(label, icon=create_color_swatch_icon(hex_val), userData=hex_val)
         self.color_combo.currentIndexChanged.connect(self._on_color_changed)
-        draw_bar.addWidget(self.color_combo)
+        draw_bar_1.addWidget(self.color_combo)
 
         self.custom_color_btn = PushButton("", self)
         self.custom_color_btn.setIcon(FIF.PALETTE)
-        self.custom_color_btn.setFixedWidth(36)
-        self.custom_color_btn.setToolTip("Pick a custom annotation color")
+        self.custom_color_btn.setFixedSize(32, 30)
+        self.custom_color_btn.setToolTip("Pick a custom color...")
         self.custom_color_btn.clicked.connect(self._pick_custom_color)
-        draw_bar.addWidget(self.custom_color_btn)
+        draw_bar_1.addWidget(self.custom_color_btn)
 
-        # Size / Thickness selector
+        # Size Selector
         self.size_combo = ComboBox(self)
+        self.size_combo.setFixedHeight(30)
+        self.size_combo.setMinimumWidth(85)
         self.size_combo.addItems(["Thin / S", "Medium / M", "Thick / L", "Bold / XL"])
         self.size_combo.setCurrentIndex(1)
         self.size_combo.setToolTip("Stroke thickness & text font size")
         self.size_combo.currentIndexChanged.connect(lambda idx: self.canvas.set_size_preset(idx))
-        draw_bar.addWidget(self.size_combo)
+        draw_bar_1.addWidget(self.size_combo)
 
-        # Undo / Redo / Clear buttons
+        canvas_layout.addLayout(draw_bar_1)
+
+        # ---- Tier 2: Undo/Redo/Clear + Zoom + Sidebar Toggles ----
+        draw_bar_2 = QHBoxLayout()
+        draw_bar_2.setContentsMargins(0, 0, 0, 0)
+        draw_bar_2.setSpacing(4)
+
         self.undo_draw_btn = PushButton("Undo", self)
         self.undo_draw_btn.setIcon(FIF.RETURN)
+        self.undo_draw_btn.setFixedHeight(28)
         self.undo_draw_btn.setToolTip("Undo last annotation change (Ctrl+Z)")
         self.undo_draw_btn.clicked.connect(lambda: self.canvas.undo_stroke())
-        draw_bar.addWidget(self.undo_draw_btn)
+        draw_bar_2.addWidget(self.undo_draw_btn)
 
         self.redo_draw_btn = PushButton("Redo", self)
         self.redo_draw_btn.setIcon(FIF.ROTATE)
+        self.redo_draw_btn.setFixedHeight(28)
         self.redo_draw_btn.setToolTip("Redo annotation change (Ctrl+Y)")
         self.redo_draw_btn.clicked.connect(lambda: self.canvas.redo_stroke())
-        draw_bar.addWidget(self.redo_draw_btn)
+        draw_bar_2.addWidget(self.redo_draw_btn)
 
         self.clear_draw_btn = PushButton("Clear", self)
         self.clear_draw_btn.setIcon(FIF.BROOM)
+        self.clear_draw_btn.setFixedHeight(28)
         self.clear_draw_btn.setToolTip("Clear all annotations on this slide")
         self.clear_draw_btn.clicked.connect(lambda: self.canvas.clear_strokes())
-        draw_bar.addWidget(self.clear_draw_btn)
+        draw_bar_2.addWidget(self.clear_draw_btn)
 
         # Zoom buttons
         self.zoom_out_btn = TransparentPushButton("", self)
         self.zoom_out_btn.setIcon(FIF.ZOOM_OUT)
-        self.zoom_out_btn.setFixedWidth(32)
+        self.zoom_out_btn.setFixedSize(28, 28)
         self.zoom_out_btn.setToolTip("Zoom Out (Ctrl + Scroll Down)")
         self.zoom_out_btn.clicked.connect(lambda: self.canvas.zoom_out())
-        draw_bar.addWidget(self.zoom_out_btn)
+        draw_bar_2.addWidget(self.zoom_out_btn)
 
         self.zoom_reset_btn = TransparentPushButton("100%", self)
+        self.zoom_reset_btn.setFixedHeight(28)
         self.zoom_reset_btn.setToolTip("Reset Zoom to Fit Slide")
         self.zoom_reset_btn.clicked.connect(lambda: self.canvas.reset_zoom())
-        draw_bar.addWidget(self.zoom_reset_btn)
+        draw_bar_2.addWidget(self.zoom_reset_btn)
 
         self.zoom_in_btn = TransparentPushButton("", self)
         self.zoom_in_btn.setIcon(FIF.ZOOM_IN)
-        self.zoom_in_btn.setFixedWidth(32)
+        self.zoom_in_btn.setFixedSize(28, 28)
         self.zoom_in_btn.setToolTip("Zoom In (Ctrl + Scroll Up)")
         self.zoom_in_btn.clicked.connect(lambda: self.canvas.zoom_in())
-        draw_bar.addWidget(self.zoom_in_btn)
+        draw_bar_2.addWidget(self.zoom_in_btn)
 
-        canvas_layout.addLayout(draw_bar)
+        draw_bar_2.addStretch(1)
+
+        # Quick Pane Toggles
+        self.toggle_deck_btn = PushButton("Deck", self)
+        self.toggle_deck_btn.setIcon(FIF.TILES)
+        self.toggle_deck_btn.setFixedHeight(28)
+        self.toggle_deck_btn.setToolTip("Toggle Left Slide Deck Pane")
+        self.toggle_deck_btn.clicked.connect(self._toggle_deck_visibility)
+        draw_bar_2.addWidget(self.toggle_deck_btn)
+
+        self.toggle_notes_btn = PushButton("Notes", self)
+        self.toggle_notes_btn.setIcon(FIF.QUICK_NOTE)
+        self.toggle_notes_btn.setFixedHeight(28)
+        self.toggle_notes_btn.setToolTip("Toggle Right Slide Notes Pane")
+        self.toggle_notes_btn.clicked.connect(self._toggle_notes_visibility)
+        draw_bar_2.addWidget(self.toggle_notes_btn)
+
+        canvas_layout.addLayout(draw_bar_2)
 
         # ---- Slide Canvas ----
         self.canvas = AnnotatableSlideCanvas(self)
@@ -1141,26 +1180,26 @@ class SlideCompanionWidget(QWidget):
 
         # ---- Bottom-Middle Navigation & "We Are Here" Control Bar ----
         bottom_nav_bar = QHBoxLayout()
-        bottom_nav_bar.setContentsMargins(8, 4, 8, 2)
-        bottom_nav_bar.setSpacing(12)
+        bottom_nav_bar.setContentsMargins(6, 2, 6, 2)
+        bottom_nav_bar.setSpacing(10)
         bottom_nav_bar.addStretch(1)
 
         self.prev_btn = PushButton("Previous", self)
         self.prev_btn.setIcon(FIF.PAGE_LEFT)
-        self.prev_btn.setFixedHeight(36)
+        self.prev_btn.setFixedHeight(32)
         self.prev_btn.setEnabled(False)
         self.prev_btn.setToolTip("Preview previous slide (Left Arrow or Touchpad Scroll Left/Up)")
         self.prev_btn.clicked.connect(self.preview_prev_slide)
         bottom_nav_bar.addWidget(self.prev_btn)
 
-        self.slide_counter_label = StrongBodyLabel("No Deck Loaded", self)
+        self.slide_counter_label = StrongBodyLabel("No Deck", self)
         self.slide_counter_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.slide_counter_label.setMinimumWidth(110)
+        self.slide_counter_label.setMinimumWidth(85)
         bottom_nav_bar.addWidget(self.slide_counter_label)
 
         self.next_btn = PushButton("Next", self)
         self.next_btn.setIcon(FIF.PAGE_RIGHT)
-        self.next_btn.setFixedHeight(36)
+        self.next_btn.setFixedHeight(32)
         self.next_btn.setEnabled(False)
         self.next_btn.setToolTip("Preview next slide (Right Arrow or Touchpad Scroll Right/Down)")
         self.next_btn.clicked.connect(self.preview_next_slide)
@@ -1169,7 +1208,7 @@ class SlideCompanionWidget(QWidget):
         # "We Are Here" Action Button right in the bottom middle
         self.we_are_here_btn = PrimaryPushButton("We Are Here", self)
         self.we_are_here_btn.setIcon(FIF.PIN)
-        self.we_are_here_btn.setFixedHeight(36)
+        self.we_are_here_btn.setFixedHeight(32)
         self.we_are_here_btn.setEnabled(False)
         self.we_are_here_btn.setToolTip(
             "Set the currently previewed slide as the active class slide and log the current recording timestamp"
@@ -1180,7 +1219,7 @@ class SlideCompanionWidget(QWidget):
         # Active vs Preview Status Badge + Jump back to Active
         self.active_status_btn = TransparentPushButton("Active: None", self)
         self.active_status_btn.setIcon(FIF.FLAG)
-        self.active_status_btn.setFixedHeight(36)
+        self.active_status_btn.setFixedHeight(32)
         self.active_status_btn.setEnabled(False)
         self.active_status_btn.setToolTip("Click to jump back to the current 'We Are Here' slide")
         self.active_status_btn.clicked.connect(self.jump_to_active_slide)
@@ -1192,12 +1231,12 @@ class SlideCompanionWidget(QWidget):
         self.splitter.addWidget(canvas_card)
 
         # 3. Right: Per-Slide Text Annotations & Timestamp Log
-        notes_card = CardWidget(self)
-        notes_card.setMinimumWidth(210)
-        notes_card.setMaximumWidth(380)
-        notes_layout = QVBoxLayout(notes_card)
-        notes_layout.setContentsMargins(12, 12, 12, 12)
-        notes_layout.setSpacing(8)
+        self.notes_card = CardWidget(self)
+        self.notes_card.setMinimumWidth(140)
+        self.notes_card.setMaximumWidth(320)
+        notes_layout = QVBoxLayout(self.notes_card)
+        notes_layout.setContentsMargins(10, 10, 10, 10)
+        notes_layout.setSpacing(6)
 
         notes_header_row = QHBoxLayout()
         notes_icon = IconWidget(FIF.QUICK_NOTE, self)
@@ -1213,20 +1252,30 @@ class SlideCompanionWidget(QWidget):
 
         self.slide_notes_edit = TextEdit(self)
         self.slide_notes_edit.setPlaceholderText(
-            "Type detailed lecture notes for this slide...\n\n"
-            "Tip: Select the 'Text' tool above and click directly on the slide to place text labels on the PDF!"
+            "Type lecture notes for this slide...\n\n"
+            "Tip: Select 'Text' icon above and click anywhere on the slide to type directly onto the PDF!"
         )
         self.slide_notes_edit.setEnabled(False)
         self.slide_notes_edit.textChanged.connect(self._on_slide_notes_changed)
         notes_layout.addWidget(self.slide_notes_edit, 1)
 
-        self.splitter.addWidget(notes_card)
+        self.splitter.addWidget(self.notes_card)
         self.splitter.setStretchFactor(0, 0)
         self.splitter.setStretchFactor(1, 1)
         self.splitter.setStretchFactor(2, 0)
-        self.splitter.setSizes([185, 900, 260])
+        self.splitter.setSizes([140, 750, 180])
 
         main_layout.addWidget(self.splitter, 1)
+
+    def _toggle_deck_visibility(self):
+        show = self.slide_list.isHidden()
+        self.slide_list.setVisible(show)
+        self.toggle_deck_btn.setText("Deck" if show else "Show Deck")
+
+    def _toggle_notes_visibility(self):
+        show = self.notes_card.isHidden()
+        self.notes_card.setVisible(show)
+        self.toggle_notes_btn.setText("Notes" if show else "Show Notes")
 
     def set_recording_time_display(self, seconds: float, is_recording: bool = True):
         """Update the live recording clock badge inside the full-screen slide toolbar."""

@@ -263,10 +263,10 @@ class TranscribeInterface(QWidget):
 
     def _activate_pivot_subpage(self, widget: QWidget, route_key: str):
         self.stacked_widget.setCurrentWidget(widget)
-        self.set_full_screen_slides_mode(route_key == "slidesPage")
+        self.set_full_screen_slides_mode(route_key in ("slidesPage", "videoPage"))
 
     def set_full_screen_slides_mode(self, enabled: bool):
-        """Expand Class Slides & Annotate to take 100% of the UI screen by hiding bottom cards."""
+        """Expand Class Slides or Video Inbox to take 100% of the UI screen by hiding bottom cards."""
         show_bottom = not enabled
         if hasattr(self, "meta_card"):
             self.meta_card.setVisible(show_bottom)
@@ -278,14 +278,14 @@ class TranscribeInterface(QWidget):
             self.action_bar_container.setVisible(show_bottom)
 
         if enabled:
-            self.main_layout.setContentsMargins(12, 8, 12, 10)
-            self.main_layout.setSpacing(6)
+            self.main_layout.setContentsMargins(8, 4, 8, 6)
+            self.main_layout.setSpacing(4)
             self.main_layout.setStretchFactor(self.stacked_widget, 1)
             if hasattr(self, "output_card"):
                 self.main_layout.setStretchFactor(self.output_card, 0)
         else:
-            self.main_layout.setContentsMargins(24, 20, 24, 20)
-            self.main_layout.setSpacing(16)
+            self.main_layout.setContentsMargins(20, 16, 20, 16)
+            self.main_layout.setSpacing(12)
             self.main_layout.setStretchFactor(self.stacked_widget, 0)
             if hasattr(self, "output_card"):
                 self.main_layout.setStretchFactor(self.output_card, 1)
@@ -691,7 +691,7 @@ class MainWindow(FluentWindow):
         super().__init__()
         self.setWindowTitle("Transcribe Notion v1.2.0")
         self.resize(960, 820)
-        self.setMinimumSize(780, 680)
+        self.setMinimumSize(740, 480)
 
         # Set application icon
         self._icon_path = get_icon_path()
@@ -1063,10 +1063,10 @@ class MainWindow(FluentWindow):
     # Tab & Audio Source Handling
     # ==========================
     def _on_pivot_changed(self, route_key: str):
-        is_slides = (route_key == "slidesPage")
-        self._tp.set_full_screen_slides_mode(is_slides)
+        is_fullscreen_tab = (route_key in ("slidesPage", "videoPage"))
+        self._tp.set_full_screen_slides_mode(is_fullscreen_tab)
 
-        if is_slides:
+        if route_key == "slidesPage":
             self._tp.stacked_widget.setCurrentWidget(self._tp.slide_companion)
             if self.isVisible() and not self.isMaximized() and not self.isFullScreen():
                 self.showMaximized()

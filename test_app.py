@@ -1137,6 +1137,14 @@ class TestSlideOCRAndJargonExtractor(unittest.TestCase):
             self.assertTrue(ti.progress_container.isHidden())
             self.assertTrue(ti.action_bar_container.isHidden())
 
+            # Switch to Video Inbox full-screen dashboard mode
+            ti._activate_pivot_subpage(ti.video_tab, "videoPage")
+            self.assertEqual(ti.stacked_widget.currentWidget(), ti.video_tab)
+            self.assertTrue(ti.meta_card.isHidden())
+            self.assertTrue(ti.output_card.isHidden())
+            self.assertTrue(ti.progress_container.isHidden())
+            self.assertTrue(ti.action_bar_container.isHidden())
+
             # Switch back to Record Live tab -> bottom cards restored
             ti._activate_pivot_subpage(ti.record_page, "recordPage")
             self.assertEqual(ti.stacked_widget.currentWidget(), ti.record_page)
@@ -1210,6 +1218,19 @@ class TestSlideOCRAndJargonExtractor(unittest.TestCase):
             self.assertTrue(out_pdf.exists())
             self.assertTrue(companion.export_annotated_slides(str(out_png)))
             self.assertTrue(out_png.exists())
+
+            # Test sidebar toggles (Deck and Notes)
+            self.assertFalse(companion.slide_list.isHidden())
+            companion.toggle_deck_btn.click()
+            self.assertTrue(companion.slide_list.isHidden())
+            companion.toggle_deck_btn.click()
+            self.assertFalse(companion.slide_list.isHidden())
+
+            self.assertFalse(companion.notes_card.isHidden())
+            companion.toggle_notes_btn.click()
+            self.assertTrue(companion.notes_card.isHidden())
+            companion.toggle_notes_btn.click()
+            self.assertFalse(companion.notes_card.isHidden())
 
             companion.close()
 

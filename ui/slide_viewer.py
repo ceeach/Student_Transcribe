@@ -61,7 +61,11 @@ from qfluentwidgets import (
     StrongBodyLabel,
     TextEdit,
     TogglePushButton,
+    ToggleToolButton,
+    ToolButton,
     TransparentPushButton,
+    TransparentToolButton,
+    isDarkTheme,
 )
 
 from logger import get_logger
@@ -86,8 +90,10 @@ def create_color_swatch_icon(hex_color: str, size: int = 16) -> QIcon:
     return QIcon(pix)
 
 
-def create_shape_icon(shape_type: str, color_hex: str = "#e2e8f0", size: int = 18) -> QIcon:
+def create_shape_icon(shape_type: str, color_hex: Optional[str] = None, size: int = 18) -> QIcon:
     """Create crisp vector QIcons for editor shape tools (rect, ellipse, arrow)."""
+    if color_hex is None:
+        color_hex = "#f1f5f9" if isDarkTheme() else "#1e293b"
     pix = QPixmap(size, size)
     pix.fill(Qt.GlobalColor.transparent)
     painter = QPainter(pix)
@@ -1015,9 +1021,8 @@ class SlideCompanionWidget(QWidget):
         self.deck_combo.currentIndexChanged.connect(self._on_deck_combo_changed)
         top_bar.addWidget(self.deck_combo)
 
-        self.remove_deck_btn = TransparentPushButton("", self)
-        self.remove_deck_btn.setIcon(FIF.DELETE)
-        self.remove_deck_btn.setFixedSize(30, 30)
+        self.remove_deck_btn = TransparentToolButton(FIF.DELETE, self)
+        self.remove_deck_btn.setFixedSize(32, 32)
         self.remove_deck_btn.setEnabled(False)
         self.remove_deck_btn.setToolTip("Remove current slide deck from class session")
         self.remove_deck_btn.clicked.connect(self.remove_current_deck)
@@ -1059,8 +1064,8 @@ class SlideCompanionWidget(QWidget):
 
         # 1. Left: Slide List (for fast preview browsing)
         self.slide_list = ListWidget(self)
-        self.slide_list.setMinimumWidth(110)
-        self.slide_list.setMaximumWidth(280)
+        self.slide_list.setMinimumWidth(180)
+        self.slide_list.setMaximumWidth(320)
         self.slide_list.currentRowChanged.connect(self._on_list_row_changed)
         self.splitter.addWidget(self.slide_list)
 
@@ -1075,60 +1080,52 @@ class SlideCompanionWidget(QWidget):
         draw_bar_1.setContentsMargins(0, 0, 0, 0)
         draw_bar_1.setSpacing(4)
 
-        # Compact tool buttons (36x30px) with icons and tooltips
-        self.pen_tool_btn = TogglePushButton(self)
-        self.pen_tool_btn.setIcon(FIF.PENCIL_INK)
-        self.pen_tool_btn.setFixedSize(36, 30)
+        # Compact tool buttons with icons and tooltips using ToggleToolButton
+        self.pen_tool_btn = ToggleToolButton(FIF.PENCIL_INK, self)
+        self.pen_tool_btn.setFixedSize(36, 32)
         self.pen_tool_btn.setChecked(True)
         self.pen_tool_btn.setToolTip("Pen (Freehand Drawing)")
         self.pen_tool_btn.clicked.connect(lambda: self._select_editor_tool("pen"))
         draw_bar_1.addWidget(self.pen_tool_btn)
 
-        self.highlighter_tool_btn = TogglePushButton(self)
-        self.highlighter_tool_btn.setIcon(FIF.HIGHTLIGHT)
-        self.highlighter_tool_btn.setFixedSize(36, 30)
+        self.highlighter_tool_btn = ToggleToolButton(FIF.HIGHTLIGHT, self)
+        self.highlighter_tool_btn.setFixedSize(36, 32)
         self.highlighter_tool_btn.setToolTip("Highlighter (Translucent Marker)")
         self.highlighter_tool_btn.clicked.connect(lambda: self._select_editor_tool("highlighter"))
         draw_bar_1.addWidget(self.highlighter_tool_btn)
 
-        self.text_tool_btn = TogglePushButton(self)
-        self.text_tool_btn.setIcon(FIF.FONT)
-        self.text_tool_btn.setFixedSize(36, 30)
+        self.text_tool_btn = ToggleToolButton(FIF.FONT, self)
+        self.text_tool_btn.setFixedSize(36, 32)
         self.text_tool_btn.setToolTip("Text Box (Click slide to type text, double-click existing text to edit)")
         self.text_tool_btn.clicked.connect(lambda: self._select_editor_tool("text"))
         draw_bar_1.addWidget(self.text_tool_btn)
 
-        self.rect_tool_btn = TogglePushButton(self)
-        self.rect_tool_btn.setIcon(create_shape_icon("rect"))
-        self.rect_tool_btn.setFixedSize(36, 30)
+        self.rect_tool_btn = ToggleToolButton(create_shape_icon("rect"), self)
+        self.rect_tool_btn.setFixedSize(36, 32)
         self.rect_tool_btn.setToolTip("Box / Rectangle Shape")
         self.rect_tool_btn.clicked.connect(lambda: self._select_editor_tool("rect"))
         draw_bar_1.addWidget(self.rect_tool_btn)
 
-        self.ellipse_tool_btn = TogglePushButton(self)
-        self.ellipse_tool_btn.setIcon(create_shape_icon("ellipse"))
-        self.ellipse_tool_btn.setFixedSize(36, 30)
+        self.ellipse_tool_btn = ToggleToolButton(create_shape_icon("ellipse"), self)
+        self.ellipse_tool_btn.setFixedSize(36, 32)
         self.ellipse_tool_btn.setToolTip("Circle / Ellipse Shape")
         self.ellipse_tool_btn.clicked.connect(lambda: self._select_editor_tool("ellipse"))
         draw_bar_1.addWidget(self.ellipse_tool_btn)
 
-        self.arrow_tool_btn = TogglePushButton(self)
-        self.arrow_tool_btn.setIcon(create_shape_icon("arrow"))
-        self.arrow_tool_btn.setFixedSize(36, 30)
+        self.arrow_tool_btn = ToggleToolButton(create_shape_icon("arrow"), self)
+        self.arrow_tool_btn.setFixedSize(36, 32)
         self.arrow_tool_btn.setToolTip("Arrow Shape")
         self.arrow_tool_btn.clicked.connect(lambda: self._select_editor_tool("arrow"))
         draw_bar_1.addWidget(self.arrow_tool_btn)
 
-        self.select_tool_btn = TogglePushButton(self)
-        self.select_tool_btn.setIcon(FIF.MOVE)
-        self.select_tool_btn.setFixedSize(36, 30)
+        self.select_tool_btn = ToggleToolButton(FIF.MOVE, self)
+        self.select_tool_btn.setFixedSize(36, 32)
         self.select_tool_btn.setToolTip("Move / Select Tool (Drag to reposition, Delete key to remove)")
         self.select_tool_btn.clicked.connect(lambda: self._select_editor_tool("select"))
         draw_bar_1.addWidget(self.select_tool_btn)
 
-        self.eraser_tool_btn = TogglePushButton(self)
-        self.eraser_tool_btn.setIcon(FIF.ERASE_TOOL)
-        self.eraser_tool_btn.setFixedSize(36, 30)
+        self.eraser_tool_btn = ToggleToolButton(FIF.ERASE_TOOL, self)
+        self.eraser_tool_btn.setFixedSize(36, 32)
         self.eraser_tool_btn.setToolTip("Eraser (Click or drag over annotations to delete)")
         self.eraser_tool_btn.clicked.connect(lambda: self._select_editor_tool("eraser"))
         draw_bar_1.addWidget(self.eraser_tool_btn)
@@ -1169,9 +1166,8 @@ class SlideCompanionWidget(QWidget):
         self.color_combo.currentIndexChanged.connect(self._on_color_changed)
         draw_bar_1.addWidget(self.color_combo)
 
-        self.custom_color_btn = PushButton("", self)
-        self.custom_color_btn.setIcon(FIF.PALETTE)
-        self.custom_color_btn.setFixedSize(32, 30)
+        self.custom_color_btn = ToolButton(FIF.PALETTE, self)
+        self.custom_color_btn.setFixedSize(32, 32)
         self.custom_color_btn.setToolTip("Pick a custom color...")
         self.custom_color_btn.clicked.connect(self._pick_custom_color)
         draw_bar_1.addWidget(self.custom_color_btn)
@@ -1215,22 +1211,20 @@ class SlideCompanionWidget(QWidget):
         draw_bar_2.addWidget(self.clear_draw_btn)
 
         # Zoom buttons
-        self.zoom_out_btn = TransparentPushButton("", self)
-        self.zoom_out_btn.setIcon(FIF.ZOOM_OUT)
-        self.zoom_out_btn.setFixedSize(28, 28)
+        self.zoom_out_btn = TransparentToolButton(FIF.ZOOM_OUT, self)
+        self.zoom_out_btn.setFixedSize(30, 30)
         self.zoom_out_btn.setToolTip("Zoom Out (Ctrl + Scroll Down)")
         self.zoom_out_btn.clicked.connect(lambda: self.canvas.zoom_out())
         draw_bar_2.addWidget(self.zoom_out_btn)
 
         self.zoom_reset_btn = TransparentPushButton("100%", self)
-        self.zoom_reset_btn.setFixedHeight(28)
+        self.zoom_reset_btn.setFixedHeight(30)
         self.zoom_reset_btn.setToolTip("Reset Zoom to Fit Slide")
         self.zoom_reset_btn.clicked.connect(lambda: self.canvas.reset_zoom())
         draw_bar_2.addWidget(self.zoom_reset_btn)
 
-        self.zoom_in_btn = TransparentPushButton("", self)
-        self.zoom_in_btn.setIcon(FIF.ZOOM_IN)
-        self.zoom_in_btn.setFixedSize(28, 28)
+        self.zoom_in_btn = TransparentToolButton(FIF.ZOOM_IN, self)
+        self.zoom_in_btn.setFixedSize(30, 30)
         self.zoom_in_btn.setToolTip("Zoom In (Ctrl + Scroll Up)")
         self.zoom_in_btn.clicked.connect(lambda: self.canvas.zoom_in())
         draw_bar_2.addWidget(self.zoom_in_btn)
@@ -1315,8 +1309,8 @@ class SlideCompanionWidget(QWidget):
 
         # 3. Right: Per-Slide Text Annotations & Timestamp Log
         self.notes_card = CardWidget(self)
-        self.notes_card.setMinimumWidth(140)
-        self.notes_card.setMaximumWidth(320)
+        self.notes_card.setMinimumWidth(220)
+        self.notes_card.setMaximumWidth(400)
         notes_layout = QVBoxLayout(self.notes_card)
         notes_layout.setContentsMargins(10, 10, 10, 10)
         notes_layout.setSpacing(6)
@@ -1346,7 +1340,7 @@ class SlideCompanionWidget(QWidget):
         self.splitter.setStretchFactor(0, 0)
         self.splitter.setStretchFactor(1, 1)
         self.splitter.setStretchFactor(2, 0)
-        self.splitter.setSizes([140, 750, 180])
+        self.splitter.setSizes([200, 750, 240])
 
         main_layout.addWidget(self.splitter, 1)
 

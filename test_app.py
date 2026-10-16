@@ -1110,6 +1110,42 @@ class TestSlideOCRAndJargonExtractor(unittest.TestCase):
             self.assertIn("1 ink annotations", summary_md)
             companion.close()
 
+    def test_class_slides_fullscreen_mode_hides_bottom_cards(self):
+        from PyQt6.QtWidgets import QApplication
+        from audio_recorder import AudioRecorder
+        from video_watcher import VideoFolderWatcher
+        from main import TranscribeInterface
+        import tempfile
+
+        app = QApplication.instance() or QApplication(["test"])
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            rec = AudioRecorder()
+            watcher = VideoFolderWatcher(watch_folder=tmp_dir)
+            ti = TranscribeInterface(recorder=rec, video_watcher=watcher)
+
+            # By default on Record Live tab, bottom cards are visible (not hidden)
+            self.assertFalse(ti.meta_card.isHidden())
+            self.assertFalse(ti.output_card.isHidden())
+            self.assertFalse(ti.progress_container.isHidden())
+            self.assertFalse(ti.action_bar_container.isHidden())
+
+            # Switch to Class Slides & Annotate full-screen mode
+            ti._activate_pivot_subpage(ti.slide_companion, "slidesPage")
+            self.assertEqual(ti.stacked_widget.currentWidget(), ti.slide_companion)
+            self.assertTrue(ti.meta_card.isHidden())
+            self.assertTrue(ti.output_card.isHidden())
+            self.assertTrue(ti.progress_container.isHidden())
+            self.assertTrue(ti.action_bar_container.isHidden())
+
+            # Switch back to Record Live tab -> bottom cards restored
+            ti._activate_pivot_subpage(ti.record_page, "recordPage")
+            self.assertEqual(ti.stacked_widget.currentWidget(), ti.record_page)
+            self.assertFalse(ti.meta_card.isHidden())
+            self.assertFalse(ti.output_card.isHidden())
+            self.assertFalse(ti.progress_container.isHidden())
+            self.assertFalse(ti.action_bar_container.isHidden())
+            ti.close()
+
 
 if __name__ == "__main__":
     unittest.main()

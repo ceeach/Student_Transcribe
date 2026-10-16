@@ -271,7 +271,7 @@ class SlideCompanionWidget(QWidget):
 
     def _init_ui(self):
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 8, 0, 0)
+        main_layout.setContentsMargins(0, 4, 0, 0)
         main_layout.setSpacing(8)
 
         # ---- Top Control Bar ----
@@ -306,6 +306,11 @@ class SlideCompanionWidget(QWidget):
         self.active_status_btn.clicked.connect(self.jump_to_active_slide)
         top_bar.addWidget(self.active_status_btn, 1)
 
+        # Live Recording Timer indicator while in full-screen slides mode
+        self.live_timer_badge = CaptionLabel("🎙 00:00", self)
+        self.live_timer_badge.setToolTip("Current live recording timestamp used when marking '📍 We Are Here'")
+        top_bar.addWidget(self.live_timer_badge)
+
         # "We Are Here" Action Button
         self.we_are_here_btn = PrimaryPushButton("📍 We Are Here (Mark Slide)", self)
         self.we_are_here_btn.setEnabled(False)
@@ -315,24 +320,30 @@ class SlideCompanionWidget(QWidget):
         self.we_are_here_btn.clicked.connect(self.mark_current_slide_here)
         top_bar.addWidget(self.we_are_here_btn)
 
+        # Full-Screen OS Window Toggle Button
+        self.fullscreen_btn = PushButton("⛶ Full Screen", self)
+        self.fullscreen_btn.setToolTip("Toggle full-screen lecture mode (F11)")
+        self.fullscreen_btn.clicked.connect(self.toggle_window_fullscreen)
+        top_bar.addWidget(self.fullscreen_btn)
+
         main_layout.addLayout(top_bar)
 
         # ---- Main Body Splitter: Left Slide List | Center Canvas | Right Notes & Draw Tools ----
-        splitter = QSplitter(Qt.Orientation.Horizontal, self)
-        splitter.setChildrenCollapsible(False)
+        self.splitter = QSplitter(Qt.Orientation.Horizontal, self)
+        self.splitter.setChildrenCollapsible(True)
 
         # 1. Left: Slide List (for fast preview browsing)
         self.slide_list = ListWidget(self)
-        self.slide_list.setMinimumWidth(145)
-        self.slide_list.setMaximumWidth(210)
+        self.slide_list.setMinimumWidth(160)
+        self.slide_list.setMaximumWidth(320)
         self.slide_list.currentRowChanged.connect(self._on_list_row_changed)
-        splitter.addWidget(self.slide_list)
+        self.splitter.addWidget(self.slide_list)
 
         # 2. Center: Annotatable Slide Canvas
         canvas_card = CardWidget(self)
         canvas_layout = QVBoxLayout(canvas_card)
-        canvas_layout.setContentsMargins(6, 6, 6, 6)
-        canvas_layout.setSpacing(4)
+        canvas_layout.setContentsMargins(8, 8, 8, 8)
+        canvas_layout.setSpacing(6)
 
         # Annotation Drawing Toolbar
         draw_bar = QHBoxLayout()
@@ -370,15 +381,15 @@ class SlideCompanionWidget(QWidget):
         self.canvas.annotations_modified.connect(self._save_current_slide_strokes)
         canvas_layout.addWidget(self.canvas, 1)
 
-        splitter.addWidget(canvas_card)
+        self.splitter.addWidget(canvas_card)
 
         # 3. Right: Per-Slide Text Annotations & Timestamp Log
         notes_card = CardWidget(self)
-        notes_card.setMinimumWidth(210)
-        notes_card.setMaximumWidth(290)
+        notes_card.setMinimumWidth(220)
+        notes_card.setMaximumWidth(420)
         notes_layout = QVBoxLayout(notes_card)
-        notes_layout.setContentsMargins(10, 10, 10, 10)
-        notes_layout.setSpacing(6)
+        notes_layout.setContentsMargins(12, 12, 12, 12)
+        notes_layout.setSpacing(8)
 
         self.notes_header_label = StrongBodyLabel("📝 Slide Annotations", self)
         notes_layout.addWidget(self.notes_header_label)
@@ -396,10 +407,31 @@ class SlideCompanionWidget(QWidget):
         self.slide_notes_edit.textChanged.connect(self._on_slide_notes_changed)
         notes_layout.addWidget(self.slide_notes_edit, 1)
 
-        splitter.addWidget(notes_card)
-        splitter.setSizes([160, 520, 240])
+        self.splitter.addWidget(notes_card)
+        self.splitter.setStretchFactor(0, 0)
+        self.splitter.setStretchFactor(1, 1)
+        self.splitter.setStretchFactor(2, 0)
+        self.splitter.setSizes([190, 860, 280])
 
-        main_layout.addWidget(splitter, 1)
+        main_layout.addWidget(self.splitter, 1)
+
+    def set_recording_time_display(self, seconds: float, is_recording: bool = True):
+        """Update the live recording clock badge inside the full-screen slide toolbar."""
+        ts_str = format_timestamp(seconds)
+        prefix = "🔴 REC" if is_recording else "🎙"
+        self.live_timer_badge.setText(f"{prefix} {ts_str}")
+
+    def toggle_window_fullscreen(self):
+        """Toggle the top-level application window between full-screen and normal/maximized."""
+        win = self.window()
+        if not win:
+            return
+        if win.isFullScreen():
+            win.showMaximized()
+            self.fullscreen_btn.setText("⛶ Full Screen")
+        else:
+            win.showFullScreen()
+            self.fullscreen_btn.setText("🗗 Exit Full Screen")
 
     # ==========================
     # PDF Loading & Rendering
@@ -455,8 +487,8 @@ class SlideCompanionWidget(QWidget):
                 title_str = first_line or f"Slide {idx + 1}"
                 self._slide_titles.append(title_str)
 
-                # Render slide pixmap at crisp 130 DPI
-                pix = page.get_pixmap(dpi=130, alpha=False)
+                # Render slide pixmap at crisp 160 DPI for full-screen clarity
+                pix = page.get_pixmap(dpi=160, alpha=False)
                 qimg = QImage(
                     pix.samples,
                     pix.width,

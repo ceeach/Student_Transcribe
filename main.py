@@ -201,9 +201,9 @@ class TranscribeInterface(QWidget):
         self._init_ui()
 
     def _init_ui(self):
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(24, 20, 24, 20)
-        main_layout.setSpacing(16)
+        self.main_layout = QVBoxLayout(self)
+        self.main_layout.setContentsMargins(24, 20, 24, 20)
+        self.main_layout.setSpacing(16)
 
         # ---- Pivot Navigation for Source Tabs ----
         self.pivot = Pivot(self)
@@ -228,34 +228,66 @@ class TranscribeInterface(QWidget):
         )
         self.slide_companion.setObjectName("slidesPage")
 
-        # Add to stack and pivot
+        # Add to stack and pivot (escape && so Qt does not treat & as an underline mnemonic)
         self._add_pivot_page(self.record_page, "recordPage", "🎙 Record Live")
         self._add_pivot_page(self.upload_page, "uploadPage", "📁 Upload File")
         self._add_pivot_page(self.video_tab, "videoPage", "📹 Video Inbox")
-        self._add_pivot_page(self.slide_companion, "slidesPage", "📊 Class Slides & Annotate")
+        self._add_pivot_page(self.slide_companion, "slidesPage", "📊 Class Slides && Annotate")
 
         self.pivot.setCurrentItem("recordPage")
         self.stacked_widget.setCurrentWidget(self.record_page)
 
-        main_layout.addWidget(self.pivot)
-        main_layout.addWidget(self.stacked_widget)
+        self.main_layout.addWidget(self.pivot)
+        self.main_layout.addWidget(self.stacked_widget)
 
         # ---- Notion Metadata Card ----
-        self._create_metadata_card(main_layout)
+        self._create_metadata_card(self.main_layout)
 
         # ---- Transcript Preview Card ----
-        self._create_transcript_card(main_layout)
+        self._create_transcript_card(self.main_layout)
 
         # ---- Progress Section ----
-        self._create_progress_section(main_layout)
+        self._create_progress_section(self.main_layout)
 
         # ---- Action Bar ----
-        self._create_action_bar(main_layout)
+        self._create_action_bar(self.main_layout)
 
     def _add_pivot_page(self, widget, route_key, text):
         self.stacked_widget.addWidget(widget)
-        self.pivot.addItem(routeKey=route_key, text=text,
-                          onClick=lambda: self.stacked_widget.setCurrentWidget(widget))
+        self.pivot.addItem(
+            routeKey=route_key,
+            text=text,
+            onClick=lambda: self._activate_pivot_subpage(widget, route_key),
+        )
+
+    def _activate_pivot_subpage(self, widget: QWidget, route_key: str):
+        self.stacked_widget.setCurrentWidget(widget)
+        self.set_full_screen_slides_mode(route_key == "slidesPage")
+
+    def set_full_screen_slides_mode(self, enabled: bool):
+        """Expand Class Slides & Annotate to take 100% of the UI screen by hiding bottom cards."""
+        show_bottom = not enabled
+        if hasattr(self, "meta_card"):
+            self.meta_card.setVisible(show_bottom)
+        if hasattr(self, "output_card"):
+            self.output_card.setVisible(show_bottom)
+        if hasattr(self, "progress_container"):
+            self.progress_container.setVisible(show_bottom)
+        if hasattr(self, "action_bar_container"):
+            self.action_bar_container.setVisible(show_bottom)
+
+        if enabled:
+            self.main_layout.setContentsMargins(12, 8, 12, 10)
+            self.main_layout.setSpacing(6)
+            self.main_layout.setStretchFactor(self.stacked_widget, 1)
+            if hasattr(self, "output_card"):
+                self.main_layout.setStretchFactor(self.output_card, 0)
+        else:
+            self.main_layout.setContentsMargins(24, 20, 24, 20)
+            self.main_layout.setSpacing(16)
+            self.main_layout.setStretchFactor(self.stacked_widget, 0)
+            if hasattr(self, "output_card"):
+                self.main_layout.setStretchFactor(self.output_card, 1)
 
     def _create_record_page(self) -> QWidget:
         page = QWidget()
@@ -354,8 +386,8 @@ class TranscribeInterface(QWidget):
         return page
 
     def _create_metadata_card(self, parent_layout):
-        meta_card = CardWidget(self)
-        meta_layout = QVBoxLayout(meta_card)
+        self.meta_card = CardWidget(self)
+        meta_layout = QVBoxLayout(self.meta_card)
         meta_layout.setContentsMargins(16, 14, 16, 14)
         meta_layout.setSpacing(10)
 
@@ -438,11 +470,11 @@ class TranscribeInterface(QWidget):
 
         meta_layout.addLayout(row4)
 
-        parent_layout.addWidget(meta_card)
+        parent_layout.addWidget(self.meta_card)
 
     def _create_transcript_card(self, parent_layout):
-        output_card = CardWidget(self)
-        output_layout = QVBoxLayout(output_card)
+        self.output_card = CardWidget(self)
+        output_layout = QVBoxLayout(self.output_card)
         output_layout.setContentsMargins(14, 12, 14, 12)
         output_layout.setSpacing(8)
 
@@ -555,10 +587,12 @@ class TranscribeInterface(QWidget):
 
         output_layout.addWidget(self.preview_stack)
 
-        parent_layout.addWidget(output_card, 1)
+        parent_layout.addWidget(self.output_card, 1)
 
     def _create_progress_section(self, parent_layout):
-        progress_layout = QVBoxLayout()
+        self.progress_container = QWidget(self)
+        progress_layout = QVBoxLayout(self.progress_container)
+        progress_layout.setContentsMargins(0, 0, 0, 0)
         progress_layout.setSpacing(4)
 
         status_row = QHBoxLayout()
@@ -573,10 +607,12 @@ class TranscribeInterface(QWidget):
         self.progress_bar.setValue(0)
         progress_layout.addWidget(self.progress_bar)
 
-        parent_layout.addLayout(progress_layout)
+        parent_layout.addWidget(self.progress_container)
 
     def _create_action_bar(self, parent_layout):
-        action_layout = QHBoxLayout()
+        self.action_bar_container = QWidget(self)
+        action_layout = QHBoxLayout(self.action_bar_container)
+        action_layout.setContentsMargins(0, 0, 0, 0)
         action_layout.setSpacing(10)
 
         # Quick Model Selector
@@ -621,7 +657,7 @@ class TranscribeInterface(QWidget):
         self.action_btn = PrimaryPushButton("⚡ Transcribe & Push to Notion", self)
         action_layout.addWidget(self.action_btn, 1)
 
-        parent_layout.addLayout(action_layout)
+        parent_layout.addWidget(self.action_bar_container)
 
 
 # ============================================================
@@ -717,6 +753,16 @@ class MainWindow(FluentWindow):
             position=NavigationItemPosition.TOP,
         )
 
+        # 1b. Class Slides Full-Screen Shortcut in Sidebar
+        self.navigationInterface.addItem(
+            routeKey="classSlidesNav",
+            icon=FIF.ALBUM,
+            text="Class Slides",
+            onClick=self._open_class_slides_view,
+            selectable=False,
+            position=NavigationItemPosition.TOP,
+        )
+
         # 2. Past Recordings Interface
         self.recordings_page = QWidget()
         self.recordings_page.setObjectName("recordingsInterface")
@@ -754,6 +800,12 @@ class MainWindow(FluentWindow):
 
         # Set default page
         self.switchTo(self.transcribe_page)
+
+    def _open_class_slides_view(self):
+        """Switch directly to the full-screen Class Slides & Annotate view."""
+        self.switchTo(self.transcribe_page)
+        self._tp.pivot.setCurrentItem("slidesPage")
+        self._on_pivot_changed("slidesPage")
 
     def _connect_signals(self):
         """Wire up all signal connections for the transcribe interface."""
@@ -990,14 +1042,24 @@ class MainWindow(FluentWindow):
     # Tab & Audio Source Handling
     # ==========================
     def _on_pivot_changed(self, route_key: str):
-        if route_key == "recordPage":
+        is_slides = (route_key == "slidesPage")
+        self._tp.set_full_screen_slides_mode(is_slides)
+
+        if is_slides:
+            self._tp.stacked_widget.setCurrentWidget(self._tp.slide_companion)
+            if self.isVisible() and not self.isMaximized() and not self.isFullScreen():
+                self.showMaximized()
+        elif route_key == "recordPage":
+            self._tp.stacked_widget.setCurrentWidget(self._tp.record_page)
             self._audio_source_type = "recorded"
         elif route_key == "uploadPage":
+            self._tp.stacked_widget.setCurrentWidget(self._tp.upload_page)
             self._audio_source_type = "file"
             selected = self.drop_zone.get_selected_path()
             if selected:
                 self._current_audio_file = selected
         elif route_key == "videoPage":
+            self._tp.stacked_widget.setCurrentWidget(self._tp.video_tab)
             self._audio_source_type = "video"
             self.video_tab.refresh_file_list()
 
@@ -1289,6 +1351,7 @@ class MainWindow(FluentWindow):
         self.stop_btn.setEnabled(False)
         self.source_mode_combo.setEnabled(True)
         self.audio_meter.reset()
+        self.slide_companion.set_recording_time_display(self._tp._current_record_elapsed, is_recording=False)
 
     def _on_audio_level(self, level: float):
         self.audio_meter.set_level(level)
@@ -1296,6 +1359,7 @@ class MainWindow(FluentWindow):
     def _on_record_duration(self, seconds: float):
         self._tp._current_record_elapsed = float(seconds)
         self.timer_label.setText(format_timestamp(seconds))
+        self.slide_companion.set_recording_time_display(seconds, is_recording=self.recorder.is_recording)
 
     def _on_record_error(self, err_msg: str):
         self.record_status_badge.setText("ERROR")

@@ -18,12 +18,13 @@ av_datas, av_binaries, av_hidden = collect_all('av')
 fl_datas, fl_binaries, fl_hidden = collect_all('qfluentwidgets')
 fw2_datas, fw2_binaries, fw2_hidden = collect_all('qframelesswindow')
 dd_datas, dd_binaries, dd_hidden = collect_all('darkdetect')
+mu_datas, mu_binaries, mu_hidden = collect_all('pymupdf')
 
 all_datas = [
     ('assets', 'assets'),
-] + fw_datas + ct_datas + sd_datas + sf_datas + nc_datas + so_datas + pa_datas + av_datas + fl_datas + fw2_datas + dd_datas
+] + fw_datas + ct_datas + sd_datas + sf_datas + nc_datas + so_datas + pa_datas + av_datas + fl_datas + fw2_datas + dd_datas + mu_datas
 
-all_binaries = fw_binaries + ct_binaries + sd_binaries + sf_binaries + so_binaries + pa_binaries + av_binaries + fl_binaries + fw2_binaries + dd_binaries
+all_binaries = fw_binaries + ct_binaries + sd_binaries + sf_binaries + so_binaries + pa_binaries + av_binaries + fl_binaries + fw2_binaries + dd_binaries + mu_binaries
 
 all_hiddenimports = [
     'PyQt6',
@@ -40,6 +41,7 @@ all_hiddenimports = [
     'transcript_diff',
     'benchmark',
     'ui.benchmark_dialog',
+    'ui.slide_viewer',
     'transcript_storage',
     'ai_service',
     'ai_worker',
@@ -52,7 +54,7 @@ all_hiddenimports = [
     'qframelesswindow',
     'darkdetect',
     'colorthief',
-] + fw_hidden + ct_hidden + sd_hidden + sf_hidden + nc_hidden + so_hidden + pa_hidden + av_hidden + fl_hidden + fw2_hidden + dd_hidden
+] + fw_hidden + ct_hidden + sd_hidden + sf_hidden + nc_hidden + so_hidden + pa_hidden + av_hidden + fl_hidden + fw2_hidden + dd_hidden + mu_hidden
 
 a = Analysis(
     ['main.py'],

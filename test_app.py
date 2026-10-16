@@ -1048,6 +1048,68 @@ class TestSlideOCRAndJargonExtractor(unittest.TestCase):
         self.assertEqual(worker.initial_prompt, "Lecture covering: Eigenvalue, Backpropagation.")
         self.assertEqual(worker.hotwords, "Eigenvalue, Backpropagation")
 
+    def test_slide_companion_preview_vs_we_are_here_and_annotations(self):
+        import tempfile
+        from pathlib import Path
+        from PyQt6.QtWidgets import QApplication
+        import pymupdf as fitz
+        from ui.slide_viewer import SlideCompanionWidget
+
+        app = QApplication.instance() or QApplication(["test"])
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            pdf_path = Path(tmp_dir) / "class_slides.pdf"
+            doc = fitz.open()
+            for i in range(1, 4):
+                page = doc.new_page(width=600, height=400)
+                page.insert_text((50, 80), f"Topic {i}: Fourier Transform & Eigenvalues")
+            doc.save(str(pdf_path))
+            doc.close()
+
+            simulated_time = [125.0]  # 02:05
+            companion = SlideCompanionWidget(time_provider=lambda: simulated_time[0])
+            loaded = companion.load_pdf(str(pdf_path))
+            self.assertTrue(loaded)
+            self.assertEqual(companion.slide_list.count(), 3)
+
+            # Initially previewing Slide 1 (idx 0), active slide is not marked (-1)
+            self.assertEqual(companion._preview_idx, 0)
+            self.assertEqual(companion._active_idx, -1)
+
+            # Click "We Are Here" on Slide 1 at 02:05
+            res = companion.mark_current_slide_here()
+            self.assertEqual(res, (1, 125.0))
+            self.assertEqual(companion._active_idx, 0)
+
+            # Preview Slide 3 (idx 2) WITHOUT clicking "We Are Here"
+            companion.slide_list.setCurrentRow(2)
+            self.assertEqual(companion._preview_idx, 2)
+            # Active slide MUST still be Slide 1 (idx 0)!
+            self.assertEqual(companion._active_idx, 0)
+
+            # Annotate Slide 3 while previewing it
+            companion.slide_notes_edit.setPlainText("Professor said this formula is on the final exam!")
+            companion.canvas._strokes.append({
+                "mode": "pen",
+                "color": "#ef4444",
+                "width": 0.005,
+                "points": [(0.1, 0.1), (0.5, 0.5)],
+            })
+            companion._save_current_slide_strokes()
+
+            # Jump back to active slide ("We Are Here" -> Slide 1)
+            companion.jump_to_active_slide()
+            self.assertEqual(companion._preview_idx, 0)
+
+            # Verify markdown summary includes both Slide 1's timestamp and Slide 3's annotation
+            summary_md = companion.format_annotations_summary_markdown()
+            self.assertIn("Slide 1", summary_md)
+            self.assertIn("[02:05]", summary_md)
+            self.assertIn("Slide 3", summary_md)
+            self.assertIn("final exam!", summary_md)
+            self.assertIn("1 ink annotations", summary_md)
+            companion.close()
+
 
 if __name__ == "__main__":
     unittest.main()

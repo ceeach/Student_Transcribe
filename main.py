@@ -79,6 +79,7 @@ from ui.compare_dialog import CompareDialog
 from ui.drop_zone import DropZoneWidget
 from ui.recordings_list import RecordingsListWidget
 from ui.settings_dialog import SettingsDialog
+from ui.slide_viewer import SlideCompanionWidget
 from ui.video_tab import VideoTabWidget
 from video_watcher import VideoFolderWatcher
 from logger import setup_logging, open_log_file
@@ -189,13 +190,14 @@ def apply_windows_taskbar_icon(window, icon_path: str):
 # Transcribe Interface - Main page with Pivot tabs
 # ============================================================
 class TranscribeInterface(QWidget):
-    """Main transcription page with Pivot sub-tabs for Record/Upload/Video."""
+    """Main transcription page with Pivot sub-tabs for Record/Upload/Video/Slides."""
 
     def __init__(self, recorder: AudioRecorder, video_watcher: VideoFolderWatcher, parent=None):
         super().__init__(parent=parent)
         self.setObjectName("transcribeInterface")
         self.recorder = recorder
         self.video_watcher = video_watcher
+        self._current_record_elapsed: float = 0.0
         self._init_ui()
 
     def _init_ui(self):
@@ -219,10 +221,18 @@ class TranscribeInterface(QWidget):
         self.video_tab = VideoTabWidget(watcher=self.video_watcher, parent=self)
         self.video_tab.setObjectName("videoPage")
 
+        # Tab 4: Live Class Slides & Annotations Companion
+        self.slide_companion = SlideCompanionWidget(
+            time_provider=lambda: self._current_record_elapsed,
+            parent=self,
+        )
+        self.slide_companion.setObjectName("slidesPage")
+
         # Add to stack and pivot
         self._add_pivot_page(self.record_page, "recordPage", "🎙 Record Live")
         self._add_pivot_page(self.upload_page, "uploadPage", "📁 Upload File")
         self._add_pivot_page(self.video_tab, "videoPage", "📹 Video Inbox")
+        self._add_pivot_page(self.slide_companion, "slidesPage", "📊 Class Slides & Annotate")
 
         self.pivot.setCurrentItem("recordPage")
         self.stacked_widget.setCurrentWidget(self.record_page)
@@ -767,6 +777,10 @@ class MainWindow(FluentWindow):
         tp.video_tab.audio_ready_for_transcription.connect(self._on_video_audio_extracted)
         tp.video_tab.status_updated.connect(self._on_worker_status)
 
+        # Slide Companion tab
+        tp.slide_companion.pdf_imported_for_jargon.connect(lambda p: self._run_slide_extraction([p]))
+        tp.slide_companion.slide_marked_here.connect(self._on_slide_marked_here)
+
         # Recordings list
         self.recordings_list.recording_selected.connect(self._on_recording_loaded)
 
@@ -877,6 +891,10 @@ class MainWindow(FluentWindow):
         return self._tp.video_tab
 
     @property
+    def slide_companion(self):
+        return self._tp.slide_companion
+
+    @property
     def target_page_combo(self):
         return self._tp.target_page_combo
 
@@ -982,6 +1000,18 @@ class MainWindow(FluentWindow):
         elif route_key == "videoPage":
             self._audio_source_type = "video"
             self.video_tab.refresh_file_list()
+
+    def _on_slide_marked_here(self, slide_num: int, elapsed_sec: float, slide_title: str):
+        ts_str = format_timestamp(elapsed_sec)
+        self.status_label.setText(f"📍 Marked 'We Are Here': Slide {slide_num} ({slide_title}) at [{ts_str}]")
+        # Also append a live visual marker into the transcript preview if user is recording
+        marker_html = (
+            f'<p style="margin: 6px 0; padding: 4px 8px; background-color: #1e293b; border-left: 3px solid #38bdf8;">'
+            f'<span style="color: #38bdf8; font-weight: bold;">📍 [Slide {slide_num} @ {ts_str}]</span> '
+            f'<span style="color: #e2e8f0; font-weight: bold;">{slide_title}</span>'
+            f'</p>'
+        )
+        self.output_text.append(marker_html)
 
     def _on_video_dropped(self, video_path: str):
         fname = os.path.basename(video_path)
@@ -1264,6 +1294,7 @@ class MainWindow(FluentWindow):
         self.audio_meter.set_level(level)
 
     def _on_record_duration(self, seconds: float):
+        self._tp._current_record_elapsed = float(seconds)
         self.timer_label.setText(format_timestamp(seconds))
 
     def _on_record_error(self, err_msg: str):
@@ -1825,6 +1856,13 @@ class MainWindow(FluentWindow):
             metadata["duration"] = format_timestamp(last_end)
 
         current_study_notes = self._study_notes or self.study_notes_text.toPlainText().strip()
+        slide_annotations_md = self.slide_companion.format_annotations_summary_markdown()
+        if slide_annotations_md:
+            current_study_notes = (
+                f"{slide_annotations_md}\n\n{current_study_notes}".strip()
+                if current_study_notes
+                else slide_annotations_md
+            )
         if current_study_notes:
             metadata["study_notes"] = current_study_notes
 
@@ -2034,6 +2072,9 @@ class MainWindow(FluentWindow):
                     "duration": self.timer_label.text(),
                 }
                 study_notes = self._study_notes or self.study_notes_text.toPlainText().strip()
+                slide_annotations_md = self.slide_companion.format_annotations_summary_markdown()
+                if slide_annotations_md:
+                    study_notes = f"{slide_annotations_md}\n\n{study_notes}".strip() if study_notes else slide_annotations_md
                 export_to_notebooklm(
                     audio_path=self._current_audio_file or "",
                     segments=self._transcribed_segments,
@@ -2101,6 +2142,9 @@ class MainWindow(FluentWindow):
         unique_speakers = list(dict.fromkeys(s.get("speaker", "Speaker 1") for s in self._transcribed_segments if "speaker" in s))
         speaker_count = len(unique_speakers) or 1
         study_notes = self._study_notes or self.study_notes_text.toPlainText().strip()
+        slide_annotations_md = self.slide_companion.format_annotations_summary_markdown()
+        if slide_annotations_md:
+            study_notes = f"{slide_annotations_md}\n\n{study_notes}".strip() if study_notes else slide_annotations_md
         course_jargon = self.jargon_input.text().strip()
 
         formatted = AIService.format_for_notebooklm(
@@ -2119,7 +2163,7 @@ class MainWindow(FluentWindow):
         QApplication.clipboard().setText(formatted)
         InfoBar.success(
             title="Copied for NotebookLM",
-            content="Formatted source document (with transcript & slide context) copied to clipboard!",
+            content="Formatted source document (with transcript, slide timeline & annotations) copied to clipboard!",
             isClosable=True,
             duration=4000,
             position=InfoBarPosition.BOTTOM_RIGHT,
@@ -2142,7 +2186,16 @@ class MainWindow(FluentWindow):
         )
         if not files:
             return
-        self._run_slide_extraction(files)
+        # If user selected a PDF, also load it into the Class Slides & Annotate tab automatically!
+        pdf_files = [f for f in files if f.lower().endswith(".pdf")]
+        if pdf_files:
+            # load_pdf emits pdf_imported_for_jargon for pdf_files[0]
+            self.slide_companion.load_pdf(pdf_files[0])
+            other_files = [f for f in files if f != pdf_files[0]]
+            if other_files:
+                self._run_slide_extraction(other_files)
+        else:
+            self._run_slide_extraction(files)
 
     def _paste_slide_from_clipboard(self):
         """Extract course jargon from a slide image or text copied to the clipboard."""

@@ -19,39 +19,24 @@ from qfluentwidgets import (
     BodyLabel,
     CardWidget,
     ComboBox,
+    FluentIcon as FIF,
     InfoBar,
     InfoBarPosition,
     LineEdit,
     PasswordLineEdit,
     PrimaryPushButton,
     PushButton,
+    SingleDirectionScrollArea,
     SubtitleLabel,
     SwitchButton,
     TitleLabel,
 )
 
 from audio_recorder import get_audio_input_devices, get_audio_loopback_devices
-from config_manager import config_manager, sanitize_database_id
+from config_manager import config_manager
 from diarization import is_diarization_available
-from notion_service import NotionService
 from transcriber import is_cuda_available
 from ui.benchmark_dialog import BenchmarkDialog
-
-
-class ConnectionTestWorker(QThread):
-    """Background thread to test Notion credentials without freezing UI."""
-
-    finished = pyqtSignal(bool, str, dict)
-
-    def __init__(self, token: str, database_id: str, parent=None):
-        super().__init__(parent)
-        self.token = token
-        self.database_id = database_id
-
-    def run(self):
-        service = NotionService(token=self.token, database_id=self.database_id)
-        success, msg, schema = service.test_connection()
-        self.finished.emit(success, msg, schema)
 
 
 class SettingsDialog(QDialog):
@@ -61,69 +46,50 @@ class SettingsDialog(QDialog):
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
-        self.setWindowTitle("NotionTranscribe Settings")
-        self.resize(640, 800)
+        self.setWindowTitle("Transcribe Studio Settings")
+        self.resize(640, 720)
         self.setModal(True)
 
-        self._test_worker: Optional[ConnectionTestWorker] = None
         self._init_ui()
         self._load_values()
 
-    def _create_form_row(self, label_text: str, widget: QWidget, tooltip: str = "") -> QHBoxLayout:
+    def _create_form_row(self, label_text: str, widget, tooltip: str = "") -> QHBoxLayout:
         layout = QHBoxLayout()
         label = BodyLabel(label_text, self)
         if tooltip:
             label.setToolTip(tooltip)
-            widget.setToolTip(tooltip)
+            if hasattr(widget, "setToolTip"):
+                widget.setToolTip(tooltip)
         layout.addWidget(label, 1)
-        layout.addWidget(widget, 2)
+        if hasattr(widget, "isWidgetType") and widget.isWidgetType():
+            layout.addWidget(widget, 2)
+        else:
+            layout.addLayout(widget, 2)
         return layout
 
     def _init_ui(self):
-        main_layout = QVBoxLayout(self)
-        main_layout.setSpacing(18)
-        main_layout.setContentsMargins(20, 20, 20, 20)
+        root_layout = QVBoxLayout(self)
+        root_layout.setContentsMargins(16, 16, 16, 16)
+        root_layout.setSpacing(12)
 
-        # Title
+        # Title at the top (fixed)
         header = TitleLabel("Settings & Configuration", self)
-        main_layout.addWidget(header)
+        root_layout.addWidget(header)
 
-        sub = BodyLabel("Configure Notion API credentials and Whisper model inference options.", self)
-        main_layout.addWidget(sub)
+        sub = BodyLabel("Configure local audio capture, Whisper transcription, and AI study assistants.", self)
+        root_layout.addWidget(sub)
 
-        # 1. Notion API Settings Group
-        notion_card = CardWidget(self)
-        notion_layout = QVBoxLayout(notion_card)
-        notion_layout.setSpacing(12)
-        
-        notion_title = SubtitleLabel("Notion API Integration", self)
-        notion_layout.addWidget(notion_title)
+        # Smooth Scroll Area for settings cards
+        scroll = SingleDirectionScrollArea(self)
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
 
-        # Notion Token row
-        self.token_input = PasswordLineEdit(self)
-        self.token_input.setPlaceholderText("secret_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")
-        self.token_input.setToolTip("Notion Internal Integration Token starting with 'secret_'")
-        notion_layout.addLayout(self._create_form_row("Integration Token:", self.token_input))
+        scroll_content = QWidget()
+        main_layout = QVBoxLayout(scroll_content)
+        main_layout.setSpacing(16)
+        main_layout.setContentsMargins(4, 4, 12, 4)
 
-        # Database ID row
-        self.db_input = LineEdit(self)
-        self.db_input.setPlaceholderText("8a93e970b8a34bc3a18a93e970b8a34b or full URL")
-        tooltip = "Copy the 32-character ID from your Notion database URL\n(or paste the full database URL)"
-        notion_layout.addLayout(self._create_form_row("Database ID / URL:", self.db_input, tooltip))
-
-        # Test Connection button
-        test_row = QHBoxLayout()
-        self.test_btn = PushButton("⚡ Test Connection", self)
-        self.test_btn.clicked.connect(self._run_connection_test)
-        self.test_status_label = BodyLabel("", self)
-        self.test_status_label.setWordWrap(True)
-        test_row.addWidget(self.test_btn)
-        test_row.addWidget(self.test_status_label, 1)
-        notion_layout.addLayout(test_row)
-
-        main_layout.addWidget(notion_card)
-
-        # 2. Whisper Model Settings Group
+        # 1. Whisper Model Settings Group
         whisper_card = CardWidget(self)
         whisper_layout = QVBoxLayout(whisper_card)
         whisper_layout.setSpacing(12)
@@ -157,6 +123,23 @@ class SettingsDialog(QDialog):
         self.beam_combo.addItem("1 (Fast Greedy - Recommended, ~2.5x faster)", userData=1)
         self.beam_combo.addItem("5 (Exhaustive Beam Search)", userData=5)
         whisper_layout.addLayout(self._create_form_row("Decoding Speed:", self.beam_combo, "Beam size 1 runs ~2.5x faster with 99%+ accuracy and prevents GPU memory stalls."))
+
+        # Target / Forced Language
+        self.language_combo = ComboBox(self)
+        self.language_combo.addItem("English (Forced)", userData="en")
+        self.language_combo.addItem("Auto-Detect (Multilingual)", userData="auto")
+        self.language_combo.addItem("German (Deutsch)", userData="de")
+        self.language_combo.addItem("French (Français)", userData="fr")
+        self.language_combo.addItem("Spanish (Español)", userData="es")
+        self.language_combo.addItem("Italian (Italiano)", userData="it")
+        self.language_combo.addItem("Dutch (Nederlands)", userData="nl")
+        self.language_combo.addItem("Portuguese (Português)", userData="pt")
+        self.language_combo.addItem("Chinese (Mandarin)", userData="zh")
+        self.language_combo.addItem("Japanese (日本語)", userData="ja")
+        self.language_combo.addItem("Arabic (العربية)", userData="ar")
+        self.language_combo.addItem("Russian (Русский)", userData="ru")
+        self.language_combo.addItem("Korean (한국어)", userData="ko")
+        whisper_layout.addLayout(self._create_form_row("Language:", self.language_combo, "Locks transcription strictly to English (recommended to prevent mid-lecture language hopping) or select Auto-Detect."))
 
         # Benchmark & Auto-Tune Button
         self.benchmark_btn = PrimaryPushButton("⚡ Benchmark Hardware & Auto-Tune...", self)
@@ -311,8 +294,39 @@ class SettingsDialog(QDialog):
         gemini_layout.addLayout(self._create_form_row("Gemini API Key:", self.gemini_key_input, "Get a free API key at aistudio.google.com"))
 
         self.gemini_model_combo = ComboBox(self)
-        self.gemini_model_combo.addItems(["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash"])
-        gemini_layout.addLayout(self._create_form_row("Gemini Model:", self.gemini_model_combo, "gemini-1.5-flash is fast with 1M context. gemini-1.5-pro has deep conceptual reasoning."))
+        self.gemini_model_combo.addItems([
+            "Gemini 3.5 Transcribe Live",
+            "gemini-2.0-flash",
+            "gemini-1.5-flash",
+            "gemini-1.5-pro",
+        ])
+        gemini_layout.addLayout(self._create_form_row(
+            "Live Transcribe Model:",
+            self.gemini_model_combo,
+            "Real-time streaming speech-to-text model via WebSocket."
+        ))
+
+        # Summary & Notes Model Priority Fallback Chain
+        summary_row = QHBoxLayout()
+        summary_row.setSpacing(8)
+
+        self.gemini_summary_priority_input = LineEdit(self)
+        self.gemini_summary_priority_input.setPlaceholderText("gemini-3.8-flash, gemini-3.6-flash, gemini-3.5-flash...")
+        self.gemini_summary_priority_input.setClearButtonEnabled(True)
+
+        self.fetch_models_btn = PushButton("Fetch Live Models", self)
+        self.fetch_models_btn.setIcon(FIF.SYNC)
+        self.fetch_models_btn.setToolTip("Query Google Gemini API to fetch and rank the newest active models on your account")
+        self.fetch_models_btn.clicked.connect(self._fetch_gemini_models)
+
+        summary_row.addWidget(self.gemini_summary_priority_input, 1)
+        summary_row.addWidget(self.fetch_models_btn)
+
+        gemini_layout.addLayout(self._create_form_row(
+            "Summary Model Priority:",
+            summary_row,
+            "Ordered fallback chain. If your primary model runs out of credits or is rate-limited (429), it automatically cascades down the list in order."
+        ))
         ai_layout.addWidget(self.gemini_widget)
 
         # Ollama settings container
@@ -346,7 +360,61 @@ class SettingsDialog(QDialog):
 
         main_layout.addWidget(ai_card)
 
-        # Dialog Buttons
+        # Academic Subjects & Courses Card
+        academic_card = CardWidget(self)
+        academic_layout = QVBoxLayout(academic_card)
+        academic_layout.setSpacing(12)
+        academic_layout.setContentsMargins(16, 16, 16, 16)
+        academic_layout.addWidget(SubtitleLabel("Academic Subjects & Course Curriculum", self))
+
+        subj_desc = BodyLabel(
+            "Configure your subjects, course codes, and syllabus topics to automatically categorize recordings and enrich AI lecture study guides.",
+            self,
+        )
+        subj_desc.setWordWrap(True)
+        academic_layout.addWidget(subj_desc)
+
+        self.manage_subjects_btn = PushButton("📚 Manage Academic Subjects & Modules...", self)
+        self.manage_subjects_btn.setIcon(FIF.EDUCATION)
+        self.manage_subjects_btn.clicked.connect(self._open_subject_manager_from_settings)
+        academic_layout.addWidget(self.manage_subjects_btn)
+
+        main_layout.addWidget(academic_card)
+
+        # 8. Diagnostics & Application Logs Card
+        logs_card = CardWidget(self)
+        logs_layout = QVBoxLayout(logs_card)
+        logs_layout.setSpacing(12)
+        logs_layout.setContentsMargins(16, 16, 16, 16)
+        logs_layout.addWidget(SubtitleLabel("Diagnostics & Application Logs", self))
+
+        logs_desc = BodyLabel(
+            "Access technical logs for speech recognition, Gemini Live WebSocket streaming, and application diagnostics.",
+            self,
+        )
+        logs_desc.setWordWrap(True)
+        logs_layout.addWidget(logs_desc)
+
+        logs_btn_row = QHBoxLayout()
+        logs_btn_row.setSpacing(10)
+        self.open_logs_btn = PushButton("📄 View Application Logs (logs.txt)", self)
+        self.open_logs_btn.setIcon(FIF.DOCUMENT)
+        self.open_logs_btn.clicked.connect(self._open_logs_file)
+        logs_btn_row.addWidget(self.open_logs_btn)
+
+        self.open_logs_folder_btn = PushButton("📁 Open Logs Directory", self)
+        self.open_logs_folder_btn.setIcon(FIF.FOLDER)
+        self.open_logs_folder_btn.clicked.connect(self._open_logs_directory)
+        logs_btn_row.addWidget(self.open_logs_folder_btn)
+        logs_layout.addLayout(logs_btn_row)
+
+        main_layout.addWidget(logs_card)
+
+        # Finish scroll setup
+        scroll.setWidget(scroll_content)
+        root_layout.addWidget(scroll, 1)
+
+        # Dialog Buttons (fixed at the bottom)
         button_layout = QHBoxLayout()
 
         from logger import open_log_file
@@ -365,7 +433,7 @@ class SettingsDialog(QDialog):
         self.save_btn.clicked.connect(self._save_and_close)
         button_layout.addWidget(self.save_btn)
         
-        main_layout.addLayout(button_layout)
+        root_layout.addLayout(button_layout)
 
     def _browse_video_folder(self):
         curr = self.video_folder_input.text().strip()
@@ -381,9 +449,6 @@ class SettingsDialog(QDialog):
             self.compute_combo.setCurrentText("int8")
 
     def _load_values(self):
-        self.token_input.setText(config_manager.get("notion_token", ""))
-        self.db_input.setText(config_manager.get("database_id", ""))
-
         model = config_manager.get("whisper_model", "base")
         idx = self.model_combo.findText(model)
         if idx >= 0:
@@ -399,6 +464,13 @@ class SettingsDialog(QDialog):
         idx = self.compute_combo.findText(compute_type)
         if idx >= 0:
             self.compute_combo.setCurrentIndex(idx)
+
+        # Language selection
+        saved_lang = config_manager.get("whisper_language", "en") or "en"
+        for i in range(self.language_combo.count()):
+            if self.language_combo.itemData(i) == saved_lang:
+                self.language_combo.setCurrentIndex(i)
+                break
 
         self.tags_input.setText(config_manager.get("default_tags", "Meeting, Audio"))
         self.video_folder_input.setText(config_manager.get("video_watch_folder", ""))
@@ -448,14 +520,63 @@ class SettingsDialog(QDialog):
         self._on_ai_provider_changed()
 
         self.gemini_key_input.setText(config_manager.get("gemini_api_key", ""))
-        saved_gemini_model = config_manager.get("gemini_model", "gemini-1.5-flash")
+        saved_gemini_model = config_manager.get("gemini_model", "Gemini 3.5 Transcribe Live")
         idx = self.gemini_model_combo.findText(saved_gemini_model)
         if idx >= 0:
             self.gemini_model_combo.setCurrentIndex(idx)
+        else:
+            self.gemini_model_combo.addItem(saved_gemini_model)
+            self.gemini_model_combo.setCurrentText(saved_gemini_model)
+
+        self.gemini_summary_priority_input.setText(
+            config_manager.get(
+                "gemini_summary_priority",
+                "gemini-3.8-flash, gemini-3.6-flash, gemini-3.5-flash, gemini-2.5-flash, gemini-flash-latest",
+            )
+        )
 
         self.ollama_host_input.setText(config_manager.get("ollama_host", "http://localhost:11434"))
         self.ollama_model_input.setText(config_manager.get("ollama_model", "llama3.2"))
         self.ollama_key_input.setText(config_manager.get("ollama_api_key", ""))
+
+    def _fetch_gemini_models(self):
+        key = self.gemini_key_input.text().strip()
+        if not key:
+            InfoBar.warning(
+                title="API Key Required",
+                content="Please enter your Gemini API Key first to fetch available models.",
+                isClosable=True,
+                duration=4000,
+                position=InfoBarPosition.TOP,
+                parent=self,
+            )
+            return
+
+        self.fetch_models_btn.setEnabled(False)
+        self.fetch_models_btn.setText("Fetching...")
+
+        from ai_service import AIService
+        try:
+            models = AIService.get_gemini_models(key)
+            if models:
+                # Rank top Flash models for summary generation
+                priority_chain = ", ".join(models[:6])
+                self.gemini_summary_priority_input.setText(priority_chain)
+                InfoBar.success(
+                    title="Models Fetched Successfully",
+                    content=f"Found {len(models)} active text models! Priority chain ranked with newest versions.",
+                    isClosable=True,
+                    duration=5000,
+                    position=InfoBarPosition.TOP,
+                    parent=self,
+                )
+            else:
+                InfoBar.warning(title="No Models Found", content="No text models returned from API.", parent=self)
+        except Exception as e:
+            InfoBar.error(title="Fetch Failed", content=str(e), isClosable=True, duration=5000, parent=self)
+        finally:
+            self.fetch_models_btn.setEnabled(True)
+            self.fetch_models_btn.setText("Fetch Live Models")
 
     def _on_ai_provider_changed(self):
         provider = self.ai_provider_combo.currentData() or "gemini"
@@ -502,43 +623,30 @@ class SettingsDialog(QDialog):
         dlg.settings_applied.connect(lambda _: self._load_values())
         dlg.exec()
 
-    def _run_connection_test(self):
-        token = self.token_input.text().strip()
-        db_raw = self.db_input.text().strip()
-        db_id = sanitize_database_id(db_raw)
+    def _open_subject_manager_from_settings(self):
+        from ui.subject_dialog import SubjectManagementDialog
+        dlg = SubjectManagementDialog(self)
+        dlg.exec()
 
-        if not token:
-            self.test_status_label.setText("⚠️ Enter a Notion Token first.")
-            return
-        if not db_id:
-            self.test_status_label.setText("⚠️ Enter a Database ID first.")
-            return
+    def _open_logs_file(self):
+        from logger import open_log_file
+        open_log_file()
 
-        self.test_btn.setEnabled(False)
-        self.test_status_label.setText("⏳ Testing connection...")
-
-        self._test_worker = ConnectionTestWorker(token, db_id, self)
-        self._test_worker.finished.connect(self._on_test_finished)
-        self._test_worker.start()
-
-    def _on_test_finished(self, success: bool, message: str, schema: dict):
-        self.test_btn.setEnabled(True)
-        if success:
-            db_title = schema.get("title", "Database")
-            self.test_status_label.setText(f"✅ Connected to '{db_title}'!")
+    def _open_logs_directory(self):
+        import subprocess
+        from logger import LOGS_DIR
+        LOGS_DIR.mkdir(parents=True, exist_ok=True)
+        if sys.platform == "win32":
+            os.startfile(str(LOGS_DIR))
+        elif sys.platform == "darwin":
+            subprocess.run(["open", str(LOGS_DIR)])
         else:
-            self.test_status_label.setText(f"❌ {message}")
+            subprocess.run(["xdg-open", str(LOGS_DIR)])
 
     def _save_and_close(self):
-        token = self.token_input.text().strip()
-        db_raw = self.db_input.text().strip()
-        db_id = sanitize_database_id(db_raw)
-
         selected_device = "cuda" if "cuda" in self.device_combo.currentText().lower() else "cpu"
 
         new_settings = {
-            "notion_token": token,
-            "database_id": db_id,
             "whisper_model": self.model_combo.currentText(),
             "device": selected_device,
             "compute_type": self.compute_combo.currentText(),
@@ -552,9 +660,11 @@ class SettingsDialog(QDialog):
             "enable_diarization": self.enable_diarization_cb.isChecked(),
             "num_speakers": self.num_speakers_combo.currentData(),
             "beam_size": self.beam_combo.currentData() or 1,
+            "whisper_language": self.language_combo.currentData() or "en",
             "ai_provider": self.ai_provider_combo.currentData() or "gemini",
             "gemini_api_key": self.gemini_key_input.text().strip(),
             "gemini_model": self.gemini_model_combo.currentText(),
+            "gemini_summary_priority": self.gemini_summary_priority_input.text().strip(),
             "ollama_host": self.ollama_host_input.text().strip(),
             "ollama_model": self.ollama_model_input.text().strip(),
             "ollama_api_key": self.ollama_key_input.text().strip(),

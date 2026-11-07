@@ -33,12 +33,15 @@ from qfluentwidgets import (
     BodyLabel,
     CaptionLabel,
     CardWidget,
+    ComboBox,
     FluentIcon as FIF,
     IconWidget,
     LineEdit,
     MessageBox,
+    MessageBoxBase,
     PrimaryPushButton,
     PushButton,
+    TransparentPushButton,
     SubtitleLabel,
     TableWidget,
     TextEdit,
@@ -46,12 +49,15 @@ from qfluentwidgets import (
 
 from audio_recorder import RECORDINGS_DIR
 from logger import get_logger, open_log_file
+from subject_manager import SubjectManager
 from transcript_storage import (
     delete_transcript,
+    get_recording_academic_info,
     get_recording_notes,
     has_transcript,
     load_transcript,
     save_recording_notes,
+    update_recording_academic_info,
 )
 from ui.drop_zone import format_file_size
 
@@ -72,6 +78,7 @@ class RecordingsListWidget(QWidget):
     """Widget displaying a browsable table of previous recordings with side notes panel."""
 
     recording_selected = pyqtSignal(str)  # Emits file path to load
+    chat_with_recording = pyqtSignal(str)  # Emits file path to open in Lecture Chat
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -124,6 +131,27 @@ class RecordingsListWidget(QWidget):
 
         layout.addLayout(top_bar)
 
+        # Filter Toolbar: Academic Subject & Session Type
+        filter_bar = QHBoxLayout()
+        filter_bar.setSpacing(8)
+
+        filter_bar.addWidget(CaptionLabel("Subject Filter:", self))
+        self.subject_filter_combo = ComboBox(self)
+        self.subject_filter_combo.addItem("All Subjects")
+        self.subject_filter_combo.currentIndexChanged.connect(lambda: self._apply_search_filter(self.search_input.text()))
+        filter_bar.addWidget(self.subject_filter_combo)
+
+        filter_bar.addWidget(CaptionLabel("Session Type:", self))
+        self.type_filter_combo = ComboBox(self)
+        self.type_filter_combo.addItems(["All Types", "📖 Theory Lecture", "✏️ Exercise / Problem Set", "🔬 Lab / Workshop"])
+        self.type_filter_combo.currentIndexChanged.connect(lambda: self._apply_search_filter(self.search_input.text()))
+        filter_bar.addWidget(self.type_filter_combo)
+
+        filter_bar.addStretch(1)
+        self.library_stats_label = CaptionLabel("📚 0 lectures in archive", self)
+        filter_bar.addWidget(self.library_stats_label)
+        layout.addLayout(filter_bar)
+
         # Horizontal Splitter between Recordings Table and Notes Editor Card
         splitter = QSplitter(Qt.Orientation.Horizontal, self)
         splitter.setChildrenCollapsible(False)
@@ -135,17 +163,20 @@ class RecordingsListWidget(QWidget):
         table_layout.setSpacing(6)
 
         self.table = TableWidget(self)
-        self.table.setColumnCount(6)
+        self.table.setColumnCount(8)
         self.table.setHorizontalHeaderLabels([
-            "Recording Name", "Date Recorded", "Duration", "File Size", "Transcript Status", "Notes Preview"
+            "Recording Name", "Subject", "Type & Modules", "Date Recorded", "Duration", "File Size", "Transcript Status", "Notes Preview"
         ])
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
-        self.table.horizontalHeader().resizeSection(0, 180)
+        self.table.horizontalHeader().resizeSection(0, 160)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
+        self.table.horizontalHeader().resizeSection(2, 160)
         self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(7, QHeaderView.ResizeMode.Stretch)
 
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
@@ -224,6 +255,22 @@ class RecordingsListWidget(QWidget):
         self.delete_btn.clicked.connect(self._delete_selected)
         bottom_bar.addWidget(self.delete_btn)
 
+        self.edit_academic_btn = PushButton("🏷️ Allocate to Subject...", self)
+        self.edit_academic_btn.setIcon(FIF.EDIT)
+        self.edit_academic_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.edit_academic_btn.setEnabled(False)
+        self.edit_academic_btn.setToolTip("Allocate or change the course subject and modules for this recording")
+        self.edit_academic_btn.clicked.connect(self._prompt_edit_academic)
+        bottom_bar.addWidget(self.edit_academic_btn)
+
+        self.chat_lecture_btn = PushButton("💬 Ask Lecture AI", self)
+        self.chat_lecture_btn.setIcon(FIF.CHAT)
+        self.chat_lecture_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.chat_lecture_btn.setEnabled(False)
+        self.chat_lecture_btn.setToolTip("Open this lecture in interactive AI chat to ask questions or quiz yourself")
+        self.chat_lecture_btn.clicked.connect(self._chat_selected)
+        bottom_bar.addWidget(self.chat_lecture_btn)
+
         self.load_btn = PrimaryPushButton("Load for Transcription", self)
         self.load_btn.setIcon(FIF.SEND_FILL)
         self.load_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -250,6 +297,23 @@ class RecordingsListWidget(QWidget):
         # Sort newest first
         files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
 
+        # Update Subject filter dropdown options
+        if hasattr(self, "subject_filter_combo"):
+            curr_sel = self.subject_filter_combo.currentText()
+            self.subject_filter_combo.blockSignals(True)
+            self.subject_filter_combo.clear()
+            self.subject_filter_combo.addItem("All Subjects")
+            try:
+                subj_mgr = SubjectManager()
+                for s in subj_mgr.get_all_subjects():
+                    self.subject_filter_combo.addItem(s.name)
+            except Exception:
+                pass
+            idx = self.subject_filter_combo.findText(curr_sel)
+            if idx >= 0:
+                self.subject_filter_combo.setCurrentIndex(idx)
+            self.subject_filter_combo.blockSignals(False)
+
         self.table.setRowCount(len(files))
         for row, fpath in enumerate(files):
             stat = fpath.stat()
@@ -266,8 +330,29 @@ class RecordingsListWidget(QWidget):
                 except Exception:
                     pass
 
+            academic = get_recording_academic_info(str(fpath))
+            subj = academic.get("subject", "")
+            stype = academic.get("session_type", "")
+            mods = academic.get("modules", [])
+
             item_name = QTableWidgetItem(fpath.name)
             item_name.setData(Qt.ItemDataRole.UserRole, str(fpath))
+
+            item_subj = QTableWidgetItem(subj or "—")
+            item_subj.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            if subj:
+                item_subj.setForeground(QColor("#38bdf8"))
+
+            if stype and mods:
+                mod_display = f"{stype}: {', '.join(mods)}"
+            elif stype:
+                mod_display = stype
+            elif mods:
+                mod_display = ", ".join(mods)
+            else:
+                mod_display = "—"
+            item_modules = QTableWidgetItem(mod_display)
+            item_modules.setToolTip(f"Subject: {subj}\nType: {stype}\nModules: {', '.join(mods)}")
 
             item_date = QTableWidgetItem(dt_str)
             item_date.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -320,15 +405,27 @@ class RecordingsListWidget(QWidget):
                 item_notes.setForeground(QColor("#64748b"))
 
             # Store combined searchable corpus in UserRole + 1 on item_name
-            searchable_blob = f"{fpath.name.lower()} {dt_str.lower()} {notes_str.lower()} {full_transcript_text}"
+            searchable_blob = f"{fpath.name.lower()} {subj.lower()} {stype.lower()} {' '.join(mods).lower()} {dt_str.lower()} {notes_str.lower()} {full_transcript_text}"
             item_name.setData(Qt.ItemDataRole.UserRole + 1, searchable_blob)
 
             self.table.setItem(row, 0, item_name)
-            self.table.setItem(row, 1, item_date)
-            self.table.setItem(row, 2, item_duration)
-            self.table.setItem(row, 3, item_size)
-            self.table.setItem(row, 4, item_tr)
-            self.table.setItem(row, 5, item_notes)
+            self.table.setItem(row, 1, item_subj)
+            self.table.setItem(row, 2, item_modules)
+            self.table.setItem(row, 3, item_date)
+            self.table.setItem(row, 4, item_duration)
+            self.table.setItem(row, 5, item_size)
+            self.table.setItem(row, 6, item_tr)
+            self.table.setItem(row, 7, item_notes)
+
+        active_subjs = set()
+        for r in range(self.table.rowCount()):
+            s_text = self.table.item(r, 1).text() if self.table.item(r, 1) else ""
+            if s_text and s_text != "—":
+                active_subjs.add(s_text)
+        if hasattr(self, "library_stats_label"):
+            self.library_stats_label.setText(
+                f"📚 Library: {len(files)} lectures across {len(active_subjs)} course subjects"
+            )
 
         self._apply_search_filter(self.search_input.text() if hasattr(self, "search_input") else "")
         self._on_selection_changed()
@@ -336,19 +433,29 @@ class RecordingsListWidget(QWidget):
     def _on_search_changed(self, query: str):
         self._apply_search_filter(query)
 
-    def _apply_search_filter(self, query: str):
+    def _apply_search_filter(self, query: str = ""):
         q = (query or "").strip().lower()
+        selected_subj = self.subject_filter_combo.currentText() if hasattr(self, "subject_filter_combo") else "All Subjects"
+        selected_type = self.type_filter_combo.currentText() if hasattr(self, "type_filter_combo") else "All Types"
+
         total = self.table.rowCount()
         visible = 0
         for r in range(total):
             item = self.table.item(r, 0)
             blob = (item.data(Qt.ItemDataRole.UserRole + 1) or "") if item else ""
-            match = (not q) or (q in blob)
+            item_subj = self.table.item(r, 1).text() if self.table.item(r, 1) else ""
+            item_type_mod = self.table.item(r, 2).text() if self.table.item(r, 2) else ""
+
+            match_text = (not q) or (q in blob)
+            match_subj = (selected_subj == "All Subjects") or (selected_subj.lower() == item_subj.lower())
+            match_type = (selected_type == "All Types") or (selected_type.lower() in item_type_mod.lower())
+
+            match = match_text and match_subj and match_type
             self.table.setRowHidden(r, not match)
             if match:
                 visible += 1
-        if q:
-            self.count_label.setText(f"Showing {visible} of {total} recording(s) matching '{query.strip()}'")
+        if q or selected_subj != "All Subjects" or selected_type != "All Types":
+            self.count_label.setText(f"Showing {visible} of {total} recording(s)")
         else:
             self.count_label.setText(f"{total} recording(s) in archive")
 
@@ -368,6 +475,8 @@ class RecordingsListWidget(QWidget):
         self.play_btn.setEnabled(has_sel)
         self.delete_btn.setEnabled(has_sel)
         self.load_btn.setEnabled(has_sel)
+        self.edit_academic_btn.setEnabled(has_sel)
+        self.chat_lecture_btn.setEnabled(has_tr)
         self.view_transcript_btn.setEnabled(has_tr)
 
         if has_tr:
@@ -421,9 +530,94 @@ class RecordingsListWidget(QWidget):
                 else:
                     item_notes = QTableWidgetItem("—")
                     item_notes.setForeground(QColor("#64748b"))
-                self.table.setItem(curr_row, 5, item_notes)
+                self.table.setItem(curr_row, 7, item_notes)
         else:
             self.notes_status_label.setText("Failed to save notes")
+
+    def _prompt_edit_academic(self):
+        path = self._get_selected_path()
+        if not path or not os.path.exists(path):
+            return
+
+        academic = get_recording_academic_info(path)
+        current_subj = academic.get("subject", "")
+        current_type = academic.get("session_type", "")
+        current_mods = academic.get("modules", [])
+
+        dialog = MessageBoxBase(self.window())
+        dialog.titleLabel = SubtitleLabel("🏷️ Allocate Recording to Course Subject", dialog)
+        dialog.viewLayout.addWidget(dialog.titleLabel)
+
+        fname_label = CaptionLabel(f"Recording: {Path(path).name}", dialog)
+        dialog.viewLayout.addWidget(fname_label)
+
+        subj_row = QHBoxLayout()
+        subj_row.addWidget(BodyLabel("Subject / Course:", dialog), 1)
+        manage_subjs_btn = TransparentPushButton("Manage Courses", dialog)
+        manage_subjs_btn.setIcon(FIF.SETTING)
+        subj_row.addWidget(manage_subjs_btn)
+        dialog.viewLayout.addLayout(subj_row)
+
+        subj_combo = ComboBox(dialog)
+        subj_mgr = SubjectManager()
+
+        def _reload_combo():
+            curr = subj_combo.currentData() or current_subj
+            subj_combo.blockSignals(True)
+            subj_combo.clear()
+            for s in subj_mgr.get_all_subjects():
+                code_prefix = f"[{s.code}] " if s.code else ""
+                subj_combo.addItem(f"{code_prefix}{s.name}", userData=s.name)
+            if curr:
+                idx = subj_combo.findData(curr)
+                if idx < 0:
+                    idx = subj_combo.findText(curr)
+                if idx >= 0:
+                    subj_combo.setCurrentIndex(idx)
+                else:
+                    subj_combo.addItem(curr, userData=curr)
+                    subj_combo.setCurrentIndex(subj_combo.count() - 1)
+            subj_combo.blockSignals(False)
+
+        def _open_mgr():
+            from ui.subject_dialog import SubjectManagementDialog
+            m_dlg = SubjectManagementDialog(dialog)
+            m_dlg.subjects_changed.connect(_reload_combo)
+            m_dlg.exec()
+            _reload_combo()
+
+        manage_subjs_btn.clicked.connect(_open_mgr)
+        _reload_combo()
+        dialog.viewLayout.addWidget(subj_combo)
+
+        dialog.viewLayout.addWidget(BodyLabel("Session Type:", dialog))
+        type_combo = ComboBox(dialog)
+        types = ["📖 Theory Lecture", "✏️ Exercise / Problem Set", "🔬 Lab / Workshop"]
+        type_combo.addItems(types)
+        if current_type:
+            t_idx = type_combo.findText(current_type)
+            if t_idx >= 0:
+                type_combo.setCurrentIndex(t_idx)
+        dialog.viewLayout.addWidget(type_combo)
+
+        dialog.viewLayout.addWidget(BodyLabel("Modules Covered:", dialog))
+        mod_input = LineEdit(dialog)
+        mod_input.setText(", ".join(current_mods))
+        mod_input.setPlaceholderText("Comma-separated modules (e.g. Module 1: Intro, Module 2: Systems)")
+        dialog.viewLayout.addWidget(mod_input)
+
+        dialog.yesButton.setText("Allocate to Subject")
+        dialog.cancelButton.setText("Cancel")
+
+        if dialog.exec():
+            new_subj = subj_combo.currentData() or subj_combo.currentText()
+            new_type = type_combo.currentText()
+            new_mods = [m.strip() for m in mod_input.text().split(",") if m.strip()]
+            update_recording_academic_info(path, new_subj, new_type, new_mods)
+            self.refresh()
+            win = self.window()
+            if hasattr(win, "transcribe_page") and hasattr(win.transcribe_page, "subjects_hub"):
+                win.transcribe_page.subjects_hub.refresh()
 
     def _on_item_double_clicked(self, item: QTableWidgetItem):
         self._load_selected()
@@ -432,6 +626,11 @@ class RecordingsListWidget(QWidget):
         path = self._get_selected_path()
         if path and os.path.exists(path):
             self.recording_selected.emit(path)
+
+    def _chat_selected(self):
+        path = self._get_selected_path()
+        if path and os.path.exists(path):
+            self.chat_with_recording.emit(path)
 
     def _view_transcript(self):
         """Open the human-readable .txt transcript or load into app."""

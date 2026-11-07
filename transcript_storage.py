@@ -159,6 +159,11 @@ def save_transcript(
     language: Optional[str] = None,
     notion_info: Optional[Dict[str, Any]] = None,
     study_notes: Optional[str] = None,
+    subject: Optional[str] = None,
+    session_type: Optional[str] = None,
+    modules: Optional[List[str]] = None,
+    prompt: Optional[str] = None,
+    **kwargs,
 ) -> Tuple[str, str]:
     """Save transcript data to JSON and human-readable TXT files.
 
@@ -194,6 +199,10 @@ def save_transcript(
         "word_count": word_count,
         "speaker_count": len(unique_speakers),
         "speakers": unique_speakers,
+        "subject": subject or "",
+        "session_type": session_type or "Lecture",
+        "modules": modules or [],
+        "prompt": prompt or "",
         "full_text": full_text,
         "study_notes": study_notes or "",
         "segments": segments,
@@ -504,4 +513,95 @@ def export_to_notebooklm(
 
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(content)
+
+
+def get_recording_academic_info(audio_path: str) -> Dict[str, Any]:
+    """Retrieve subject, session_type, and modules for an audio recording."""
+    data = load_transcript(audio_path)
+    if data:
+        return {
+            "subject": data.get("subject", ""),
+            "session_type": data.get("session_type", "Lecture"),
+            "modules": list(data.get("modules", [])),
+        }
+    # Check sidecar meta file: <audio_stem>.meta.json
+    try:
+        audio_p = Path(audio_path)
+        meta_path = audio_p.parent / f"{audio_p.stem}.meta.json"
+        if meta_path.exists():
+            with open(meta_path, "r", encoding="utf-8") as f:
+                mdata = json.load(f)
+                return {
+                    "subject": mdata.get("subject", ""),
+                    "session_type": mdata.get("session_type", "Lecture"),
+                    "modules": list(mdata.get("modules", [])),
+                }
+    except Exception:
+        pass
+    return {"subject": "", "session_type": "Lecture", "modules": []}
+
+
+def update_recording_academic_info(
+    audio_path: str,
+    subject: str,
+    session_type: str = "Lecture",
+    modules: Optional[List[str]] = None,
+) -> bool:
+    """Update subject, session_type, and modules for a recording, transcript, or video."""
+    clean_modules = [m.strip() for m in (modules or []) if m.strip()]
+    audio_p = Path(audio_path)
+    updated = False
+
+    # 1. If audio_p is directly a transcript JSON file
+    if audio_p.suffix.lower() == ".json":
+        try:
+            with open(audio_p, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            data["subject"] = subject
+            data["session_type"] = session_type
+            data["modules"] = clean_modules
+            data["updated_at"] = datetime.now().isoformat()
+            with open(audio_p, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+            updated = True
+            linked_audio = data.get("audio_file")
+            if linked_audio and Path(linked_audio).exists():
+                audio_p = Path(linked_audio)
+        except Exception as e:
+            print(f"[TranscriptStorage] Failed to update json directly: {e}")
+
+    # 2. Update matching transcript files in storage
+    data = load_transcript(str(audio_p))
+    if data:
+        data["subject"] = subject
+        data["session_type"] = session_type
+        data["modules"] = clean_modules
+        data["updated_at"] = datetime.now().isoformat()
+        for candidate in get_transcript_paths(str(audio_p)):
+            if candidate.is_file():
+                try:
+                    with open(candidate, "w", encoding="utf-8") as f:
+                        json.dump(data, f, indent=2, ensure_ascii=False)
+                    updated = True
+                except Exception:
+                    pass
+
+    # 3. Always persist sidecar meta file
+    try:
+        meta_path = audio_p.parent / f"{audio_p.stem}.meta.json"
+        meta_data = {
+            "audio_file": str(audio_p),
+            "subject": subject,
+            "session_type": session_type,
+            "modules": clean_modules,
+            "updated_at": datetime.now().isoformat(),
+        }
+        with open(meta_path, "w", encoding="utf-8") as f:
+            json.dump(meta_data, f, indent=2, ensure_ascii=False)
+        updated = True
+    except Exception as e:
+        print(f"[TranscriptStorage] Failed to save sidecar academic meta: {e}")
+
+    return updated
+
 

@@ -420,9 +420,17 @@ def extract_slides_and_jargon(file_paths: List[str], max_terms: int = 80) -> Dic
             if txt:
                 all_texts.append(f"### {fname}\n{txt}")
             processed_files.append(fname)
-        elif ext == ".pptx":
-            logger.info(f"Extracting slide context from PowerPoint: {fname}")
-            txt = extract_text_from_pptx(path)
+        elif ext in {".ppt", ".pptx", ".doc", ".docx"}:
+            logger.info(f"Extracting slide context from document: {fname}")
+            txt = ""
+            try:
+                from document_converter import convert_to_pdf
+                pdf_converted = convert_to_pdf(path)
+                txt = extract_text_from_pdf(pdf_converted)
+            except Exception as e:
+                logger.warning(f"Failed to extract document via PDF conversion: {e}")
+                if ext == ".pptx":
+                    txt = extract_text_from_pptx(path)
             if txt:
                 all_texts.append(f"### {fname}\n{txt}")
             processed_files.append(fname)

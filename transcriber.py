@@ -82,7 +82,7 @@ class WhisperWorker(QThread):
         self.model_size = model_size
         self.device = device
         self.compute_type = compute_type
-        self.language = language
+        self.language = None if (not language or str(language).strip().lower() == "auto") else str(language).strip().lower()
         self.enable_diarization = enable_diarization
         self.num_speakers = num_speakers
         self.diarization_threshold = diarization_threshold

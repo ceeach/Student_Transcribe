@@ -57,7 +57,6 @@ from qfluentwidgets import (
 from audio_player import AudioPlayer
 from audio_recorder import AudioRecorder, RECORDINGS_DIR
 from config_manager import config_manager, VIDEO_INBOX_DIR
-from notion_worker import NotionPushWorker, NotionFetchPagesWorker
 from slide_extractor import SlideExtractorWorker, build_whisper_context_prompts
 from transcriber import WhisperWorker, format_timestamp
 from transcript_diff import TranscriptDiffEngine
@@ -65,13 +64,11 @@ from transcript_storage import (
     TRANSCRIPTS_DIR,
     delete_transcript,
     export_to_markdown,
-    export_to_notebooklm,
     export_to_srt,
     export_to_vtt,
     has_transcript,
     load_transcript,
     save_transcript,
-    update_transcript_notion_info,
 )
 from ai_worker import AIStudyNotesWorker
 from ui.audio_meter import AudioMeter
@@ -192,11 +189,20 @@ def apply_windows_taskbar_icon(window, icon_path: str):
 class TranscribeInterface(QWidget):
     """Main transcription page with Pivot sub-tabs for Record/Upload/Video/Slides."""
 
-    def __init__(self, recorder: AudioRecorder, video_watcher: VideoFolderWatcher, parent=None):
+    def __init__(
+        self,
+        recorder: AudioRecorder,
+        video_watcher: VideoFolderWatcher,
+        audio_player: Optional[AudioPlayer] = None,
+        parent=None,
+    ):
         super().__init__(parent=parent)
         self.setObjectName("transcribeInterface")
         self.recorder = recorder
         self.video_watcher = video_watcher
+        self.audio_player = audio_player
+        from subject_manager import SubjectManager
+        self.subject_manager = SubjectManager()
         self._current_record_elapsed: float = 0.0
         self._init_ui()
 
@@ -228,16 +234,28 @@ class TranscribeInterface(QWidget):
         )
         self.slide_companion.setObjectName("slidesPage")
 
+        # Tab 5: Academic Course & Subjects Hub (Dedicated Subjects Page)
+        from ui.subjects_hub import SubjectsHubWidget
+        self.subjects_hub = SubjectsHubWidget(parent=self)
+        self.subjects_hub.setObjectName("subjectsPage")
+
+        # Tab 6: Recordings & Transcripts History (Dedicated History Page)
+        from ui.recordings_list import RecordingsListWidget
+        self.recordings_list = RecordingsListWidget(parent=self)
+        self.recordings_list.setObjectName("historyPage")
+
         # Add to stack and pivot (escape && so Qt does not treat & as an underline mnemonic)
         self._add_pivot_page(self.record_page, "recordPage", "Record Live", icon=FIF.MICROPHONE)
         self._add_pivot_page(self.upload_page, "uploadPage", "Upload File", icon=FIF.FOLDER)
         self._add_pivot_page(self.video_tab, "videoPage", "Video Inbox", icon=FIF.VIDEO)
         self._add_pivot_page(self.slide_companion, "slidesPage", "Class Slides && Annotate", icon=FIF.ALBUM)
+        self._add_pivot_page(self.subjects_hub, "subjectsPage", "Subjects", icon=FIF.EDUCATION)
+        self._add_pivot_page(self.recordings_list, "historyPage", "History", icon=FIF.HISTORY)
 
         self.pivot.setCurrentItem("recordPage")
         self.stacked_widget.setCurrentWidget(self.record_page)
 
-        self.main_layout.addWidget(self.pivot)
+        # self.pivot is embedded directly into MainWindow TitleBar centered
         self.main_layout.addWidget(self.stacked_widget)
 
         # ---- Notion Metadata Card ----
@@ -263,7 +281,11 @@ class TranscribeInterface(QWidget):
 
     def _activate_pivot_subpage(self, widget: QWidget, route_key: str):
         self.stacked_widget.setCurrentWidget(widget)
-        self.set_full_screen_slides_mode(route_key in ("slidesPage", "videoPage"))
+        self.set_full_screen_slides_mode(route_key in ("slidesPage", "videoPage", "subjectsPage", "historyPage"))
+        if route_key == "subjectsPage" and hasattr(self, "subjects_hub"):
+            self.subjects_hub.refresh()
+        elif route_key == "historyPage" and hasattr(self, "recordings_list"):
+            self.recordings_list.refresh()
 
     def set_full_screen_slides_mode(self, enabled: bool):
         """Expand Class Slides or Video Inbox to take 100% of the UI screen by hiding bottom cards."""
@@ -296,9 +318,9 @@ class TranscribeInterface(QWidget):
         layout.setContentsMargins(0, 12, 0, 0)
         layout.setSpacing(12)
 
-        # Audio source selector
+        # Audio source and Language selector
         source_row = QHBoxLayout()
-        source_row.setSpacing(10)
+        source_row.setSpacing(12)
         source_label = CaptionLabel("Audio Source:", self)
         source_row.addWidget(source_label)
 
@@ -317,7 +339,37 @@ class TranscribeInterface(QWidget):
             if self.source_mode_combo.itemData(i) == saved_source:
                 self.source_mode_combo.setCurrentIndex(i)
                 break
-        source_row.addWidget(self.source_mode_combo, 1)
+        source_row.addWidget(self.source_mode_combo, 3)
+
+        lang_label = CaptionLabel("Language:", self)
+        source_row.addWidget(lang_label)
+
+        self.language_combo = ComboBox(self)
+        self.language_combo.addItem("🌐 English (Forced)", userData="en")
+        self.language_combo.addItem("🌐 Auto-Detect (Multilingual)", userData="auto")
+        self.language_combo.addItem("🌐 German (Deutsch)", userData="de")
+        self.language_combo.addItem("🌐 French (Français)", userData="fr")
+        self.language_combo.addItem("🌐 Spanish (Español)", userData="es")
+        self.language_combo.addItem("🌐 Italian (Italiano)", userData="it")
+        self.language_combo.addItem("🌐 Dutch (Nederlands)", userData="nl")
+        self.language_combo.addItem("🌐 Portuguese (Português)", userData="pt")
+        self.language_combo.addItem("🌐 Chinese (Mandarin)", userData="zh")
+        self.language_combo.addItem("🌐 Japanese (日本語)", userData="ja")
+        self.language_combo.addItem("🌐 Arabic (العربية)", userData="ar")
+        self.language_combo.addItem("🌐 Russian (Русский)", userData="ru")
+        self.language_combo.addItem("🌐 Korean (한국어)", userData="ko")
+        self.language_combo.setToolTip(
+            "Transcription Language:\n"
+            "- English (Forced): Strictly locks transcription to English, preventing accidental language hopping during accented speech.\n"
+            "- Auto-Detect: Detects language dynamically per speech segment.\n"
+            "- Other: Locks transcription strictly to the chosen language."
+        )
+        saved_lang = config_manager.get("whisper_language", "en") or "en"
+        for i in range(self.language_combo.count()):
+            if self.language_combo.itemData(i) == saved_lang:
+                self.language_combo.setCurrentIndex(i)
+                break
+        source_row.addWidget(self.language_combo, 2)
         layout.addLayout(source_row)
 
         # Timer and VU meter card
@@ -396,37 +448,13 @@ class TranscribeInterface(QWidget):
         meta_layout.setContentsMargins(16, 14, 16, 14)
         meta_layout.setSpacing(10)
 
-        meta_header = StrongBodyLabel("Notion Target Page & Details", self)
+        meta_header = StrongBodyLabel("Session Details", self)
         meta_layout.addWidget(meta_header)
-
-        # Target page row
-        row1 = QHBoxLayout()
-        row1.setSpacing(8)
-        row1.addWidget(BodyLabel("Target Page:", self))
-
-        self.target_page_combo = ComboBox(self)
-        self.target_page_combo.addItem("[+ Create New Page in Database]", icon=FIF.ADD, userData=None)
-        row1.addWidget(self.target_page_combo, 1)
-
-        self.today_filter_cb = CheckBox("Created Today only", self)
-        self.today_filter_cb.setChecked(True)
-        self.today_filter_cb.setToolTip("Show only Notion pages created today")
-        row1.addWidget(self.today_filter_cb)
-
-        self.clear_filter_btn = TransparentPushButton("Clear Filter", self)
-        self.clear_filter_btn.setToolTip("Clear filter to show all database pages")
-        row1.addWidget(self.clear_filter_btn)
-
-        self.refresh_pages_btn = PushButton("Refresh", self)
-        self.refresh_pages_btn.setIcon(FIF.SYNC)
-        self.refresh_pages_btn.setToolTip("Fetch latest pages from Notion database")
-        row1.addWidget(self.refresh_pages_btn)
-        meta_layout.addLayout(row1)
 
         # Title row
         row2 = QHBoxLayout()
         row2.setSpacing(8)
-        self.title_label = BodyLabel("Page Title:", self)
+        self.title_label = BodyLabel("Session Title:", self)
         row2.addWidget(self.title_label)
         self.title_input = LineEdit(self)
         default_title = f"Transcript - {datetime.now().strftime('%Y-%m-%d %H:%M')}"
@@ -445,6 +473,48 @@ class TranscribeInterface(QWidget):
         self.tags_input.setPlaceholderText("Comma-separated tags (e.g., Meeting, Memo, Interview)")
         row3.addWidget(self.tags_input, 1)
         meta_layout.addLayout(row3)
+
+        # Academic Subject, Session Type & Modules Covered row
+        row_academic = QHBoxLayout()
+        row_academic.setSpacing(8)
+
+        self.subject_label = BodyLabel("Subject:", self)
+        row_academic.addWidget(self.subject_label)
+
+        self.subject_combo = ComboBox(self)
+        self.subject_combo.setMinimumWidth(160)
+        self._populate_subject_dropdown()
+        self.subject_combo.currentIndexChanged.connect(self._on_subject_changed)
+        row_academic.addWidget(self.subject_combo)
+
+        self.session_type_label = BodyLabel("Type:", self)
+        row_academic.addWidget(self.session_type_label)
+
+        self.session_type_combo = ComboBox(self)
+        self.session_type_combo.addItems(["📖 Theory Lecture", "✏️ Exercise / Problem Set", "🔬 Lab / Workshop"])
+        row_academic.addWidget(self.session_type_combo)
+
+        self.modules_label = BodyLabel("Modules:", self)
+        row_academic.addWidget(self.modules_label)
+
+        self.modules_input = LineEdit(self)
+        self.modules_input.setPlaceholderText("e.g. Module 1: Intro, Module 2: Systems")
+        self.modules_input.setClearButtonEnabled(True)
+        row_academic.addWidget(self.modules_input, 1)
+
+        self.add_subject_btn = TransparentPushButton("+ Subject", self)
+        self.add_subject_btn.setIcon(FIF.ADD)
+        self.add_subject_btn.setToolTip("Add a new academic course or subject")
+        self.add_subject_btn.clicked.connect(self._prompt_add_subject)
+        row_academic.addWidget(self.add_subject_btn)
+
+        self.manage_subject_btn = TransparentPushButton("Manage", self)
+        self.manage_subject_btn.setIcon(FIF.SETTING)
+        self.manage_subject_btn.setToolTip("Manage, edit, rename, or delete academic subjects and course modules")
+        self.manage_subject_btn.clicked.connect(self._open_subject_manager)
+        row_academic.addWidget(self.manage_subject_btn)
+
+        meta_layout.addLayout(row_academic)
 
         # Slide OCR / Course Jargon row (biases Whisper initial_prompt & hotwords)
         row4 = QHBoxLayout()
@@ -495,7 +565,7 @@ class TranscribeInterface(QWidget):
         output_header_left.addWidget(self.stats_label)
         output_header.addLayout(output_header_left, 1)
 
-        # View Switcher (Transcript vs Study Guide)
+        # View Switcher (Transcript vs Study Guide vs Ask Lecture AI)
         self.view_transcript_btn = PushButton("Transcript", self)
         self.view_transcript_btn.setIcon(FIF.DOCUMENT)
         self.view_transcript_btn.setCheckable(True)
@@ -504,22 +574,41 @@ class TranscribeInterface(QWidget):
         self.view_study_btn.setIcon(FIF.EDUCATION)
         self.view_study_btn.setCheckable(True)
         self.view_study_btn.setChecked(False)
+        self.view_chat_btn = PushButton("💬 Ask Lecture", self)
+        self.view_chat_btn.setIcon(FIF.CHAT)
+        self.view_chat_btn.setCheckable(True)
+        self.view_chat_btn.setChecked(False)
+        self.view_chat_btn.setToolTip("Ask questions and get interactive explanations grounded in this lecture")
 
         def switch_to_transcript():
             self.view_transcript_btn.setChecked(True)
             self.view_study_btn.setChecked(False)
+            self.view_chat_btn.setChecked(False)
             self.preview_stack.setCurrentIndex(0)
 
         def switch_to_study():
             self.view_transcript_btn.setChecked(False)
             self.view_study_btn.setChecked(True)
+            self.view_chat_btn.setChecked(False)
             self.preview_stack.setCurrentIndex(1)
+
+        def switch_to_chat():
+            self.view_transcript_btn.setChecked(False)
+            self.view_study_btn.setChecked(False)
+            self.view_chat_btn.setChecked(True)
+            self.preview_stack.setCurrentIndex(2)
+
+        self.switch_to_transcript = switch_to_transcript
+        self.switch_to_study = switch_to_study
+        self.switch_to_chat = switch_to_chat
 
         self.view_transcript_btn.clicked.connect(switch_to_transcript)
         self.view_study_btn.clicked.connect(switch_to_study)
+        self.view_chat_btn.clicked.connect(switch_to_chat)
 
         output_header.addWidget(self.view_transcript_btn)
         output_header.addWidget(self.view_study_btn)
+        output_header.addWidget(self.view_chat_btn)
 
         self.stop_audio_btn = PushButton("Stop Audio", self)
         self.stop_audio_btn.setIcon(FIF.PAUSE)
@@ -549,9 +638,7 @@ class TranscribeInterface(QWidget):
         act_srt = QAction(FIF.DOCUMENT.icon(), "Export Subtitles (.srt)...", self)
         act_vtt = QAction(FIF.DOCUMENT.icon(), "Export WebVTT (.vtt)...", self)
         act_md = QAction(FIF.DOCUMENT.icon(), "Export Markdown (.md)...", self)
-        act_json = QAction(FIF.CODE.icon(), "Export JSON (.json)...", self)
-        act_notebooklm = QAction(FIF.EDUCATION.icon(), "Export for NotebookLM (.md)...", self)
-        act_copy_notebooklm = QAction(FIF.COPY.icon(), "Copy for NotebookLM", self)
+        act_json = QAction(FIF.DOCUMENT.icon(), "Export JSON (.json)...", self)
         act_folder = QAction(FIF.FOLDER.icon(), "Open Transcripts Folder", self)
 
         self.export_menu.addAction(act_txt)
@@ -560,16 +647,13 @@ class TranscribeInterface(QWidget):
         self.export_menu.addAction(act_md)
         self.export_menu.addAction(act_json)
         self.export_menu.addSeparator()
-        self.export_menu.addAction(act_notebooklm)
-        self.export_menu.addAction(act_copy_notebooklm)
-        self.export_menu.addSeparator()
         self.export_menu.addAction(act_folder)
 
         # Store actions for connecting in MainWindow
         self._export_actions = {
             "txt": act_txt, "srt": act_srt, "vtt": act_vtt,
-            "md": act_md, "json": act_json, "notebooklm": act_notebooklm,
-            "copy_notebooklm": act_copy_notebooklm, "folder": act_folder,
+            "md": act_md, "json": act_json,
+            "folder": act_folder,
         }
 
         self.export_btn.clicked.connect(
@@ -600,9 +684,67 @@ class TranscribeInterface(QWidget):
         self.study_notes_text.setPlaceholderText("AI educational study guide, key concepts, and active recall flashcards will appear here...")
         self.preview_stack.addWidget(self.study_notes_text)
 
+        # Page 2: In-App Lecture Chat (Phase 2)
+        from ui.lecture_chat import LectureChatWidget
+        self.lecture_chat_widget = LectureChatWidget(self)
+        self.preview_stack.addWidget(self.lecture_chat_widget)
+
         output_layout.addWidget(self.preview_stack)
 
+        if self.audio_player:
+            from ui.audio_player_bar import AudioPlayerBar
+            self.audio_player_bar = AudioPlayerBar(self.audio_player, self)
+            output_layout.addWidget(self.audio_player_bar)
+
         parent_layout.addWidget(self.output_card, 1)
+
+    def _populate_subject_dropdown(self):
+        curr_selected = self.subject_combo.currentData() or self.subject_combo.currentText()
+        self.subject_combo.blockSignals(True)
+        self.subject_combo.clear()
+        subjects = self.subject_manager.get_all_subjects()
+        for subj in subjects:
+            code_prefix = f"[{subj.code}] " if subj.code else ""
+            self.subject_combo.addItem(f"{code_prefix}{subj.name}", userData=subj.name)
+        if curr_selected:
+            idx = self.subject_combo.findData(curr_selected)
+            if idx >= 0:
+                self.subject_combo.setCurrentIndex(idx)
+            else:
+                idx = self.subject_combo.findText(curr_selected)
+                if idx >= 0:
+                    self.subject_combo.setCurrentIndex(idx)
+        self.subject_combo.blockSignals(False)
+
+    def _on_subject_changed(self, index: int):
+        subj_name = self.subject_combo.currentData()
+        if not subj_name:
+            return
+        subj = self.subject_manager.get_subject(subj_name)
+        if subj and subj.modules and not self.modules_input.text().strip():
+            self.modules_input.setPlaceholderText(f"Available: {', '.join(subj.modules[:3])}...")
+
+    def _prompt_add_subject(self):
+        from ui.subject_dialog import SubjectManagementDialog
+        dlg = SubjectManagementDialog(self.window())
+        dlg._start_new_subject()
+        dlg.subjects_changed.connect(self._populate_subject_dropdown)
+        dlg.exec()
+        self._populate_subject_dropdown()
+        if hasattr(self.window(), "recordings_list"):
+            self.window().recordings_list.refresh()
+
+    def _open_subject_manager(self):
+        from ui.subject_dialog import SubjectManagementDialog
+        dlg = SubjectManagementDialog(self.window())
+        curr_subj = self.subject_combo.currentData()
+        if curr_subj:
+            dlg._populate_list(select_name=curr_subj)
+        dlg.subjects_changed.connect(self._populate_subject_dropdown)
+        dlg.exec()
+        self._populate_subject_dropdown()
+        if hasattr(self.window(), "recordings_list"):
+            self.window().recordings_list.refresh()
 
     def _create_progress_section(self, parent_layout):
         self.progress_container = QWidget(self)
@@ -669,13 +811,9 @@ class TranscribeInterface(QWidget):
         self.study_guide_btn.setToolTip("Generate comprehensive lecture notes, key concepts, and active recall flashcards using Gemini or Ollama")
         action_layout.addWidget(self.study_guide_btn)
 
-        self.push_only_btn = PushButton("Push to Notion", self)
-        self.push_only_btn.setIcon(FIF.SEND)
-        self.push_only_btn.setEnabled(False)
-        action_layout.addWidget(self.push_only_btn)
-
-        self.action_btn = PrimaryPushButton("Transcribe & Push to Notion", self)
-        self.action_btn.setIcon(FIF.SEND_FILL)
+        self.action_btn = PrimaryPushButton("✨ Transcribe & Generate Notes", self)
+        self.action_btn.setIcon(FIF.DOCUMENT)
+        self.action_btn.setToolTip("Transcribe audio and automatically generate comprehensive lecture notes and flashcards")
         action_layout.addWidget(self.action_btn, 1)
 
         parent_layout.addWidget(self.action_bar_container)
@@ -685,11 +823,11 @@ class TranscribeInterface(QWidget):
 # Main Window - FluentWindow with sidebar navigation
 # ============================================================
 class MainWindow(FluentWindow):
-    """Main Application Window for NotionTranscribe with WinUI3 Fluent Design."""
+    """Main Application Window for Transcribe Studio with WinUI3 Fluent Design."""
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Transcribe Notion v1.2.0")
+        self.setWindowTitle("Transcribe Studio v1.4.0")
         self.resize(960, 820)
         self.setMinimumSize(740, 480)
 
@@ -705,18 +843,18 @@ class MainWindow(FluentWindow):
         self._transcription_text: str = ""
         self._transcription_worker: Optional[WhisperWorker] = None
         self._comparison_worker: Optional[WhisperWorker] = None
-        self._notion_worker: Optional[NotionPushWorker] = None
-        self._auto_push_after_transcription = False
+        self._auto_generate_notes_after_transcription: bool = False
         self._last_model_name: str = "base"
         self._model_a_name: str = "Model A"
         self._model_b_name: str = "Model B"
         self._model_a_segments: List[Dict[str, Any]] = []
-        self._notion_pages: List[Dict[str, Any]] = []
-        self._pages_worker: Optional[NotionFetchPagesWorker] = None
         self._study_notes: str = ""
         self._ai_worker: Optional[AIStudyNotesWorker] = None
         self._slide_worker: Optional[SlideExtractorWorker] = None
         self._extracted_slide_text: str = ""
+        self.gemini_live = None
+        self._is_gemini_live_active: bool = False
+        self._current_interim: str = ""
 
         # Audio Snippet Player for click-to-play timestamps
         self.audio_player = AudioPlayer(self)
@@ -755,9 +893,7 @@ class MainWindow(FluentWindow):
         self._connect_signals()
 
         # Initial state
-        self._refresh_notion_status()
-        if config_manager.is_notion_configured():
-            self._fetch_notion_pages()
+        self.status_label.setText("Ready to record or import audio.")
 
     def _init_navigation(self):
         """Set up FluentWindow sidebar navigation with sub-interfaces."""
@@ -765,8 +901,39 @@ class MainWindow(FluentWindow):
         self.transcribe_page = TranscribeInterface(
             recorder=self.recorder,
             video_watcher=self.video_watcher,
+            audio_player=self.audio_player,
             parent=self,
         )
+
+        # Embed Source Tabs Pivot centered directly into the window TitleBar without app title text or app icon
+        self.transcribe_page.pivot.setParent(self.titleBar)
+        self.titleBar.titleLabel.hide()
+        self.titleBar.titleLabel.setText("")
+        self.titleBar.iconLabel.hide()
+
+        # Top Settings button
+        self.top_settings_btn = TransparentPushButton("Settings", self.titleBar)
+        self.top_settings_btn.setIcon(FIF.SETTING)
+        self.top_settings_btn.setFixedHeight(30)
+        self.top_settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.top_settings_btn.setToolTip("Settings & Application Logs")
+        self.top_settings_btn.clicked.connect(self._open_settings)
+
+        # Rebuild titleBar.hBoxLayout with centered pivot, top settings button, and no app icon
+        while self.titleBar.hBoxLayout.count() > 0:
+            self.titleBar.hBoxLayout.takeAt(0)
+
+        self.titleBar.hBoxLayout.addSpacing(16)
+        self.titleBar.hBoxLayout.addStretch(1)
+        self.titleBar.hBoxLayout.addWidget(self.transcribe_page.pivot, 0, Qt.AlignmentFlag.AlignCenter)
+        self.titleBar.hBoxLayout.addStretch(1)
+        self.titleBar.hBoxLayout.addWidget(self.top_settings_btn, 0, Qt.AlignmentFlag.AlignVCenter)
+        self.titleBar.hBoxLayout.addSpacing(8)
+        self.titleBar.hBoxLayout.addLayout(self.titleBar.vBoxLayout, 0)
+
+        # Reference to recordings list inside transcribe_page
+        self.recordings_list = self.transcribe_page.recordings_list
+
         self.addSubInterface(
             self.transcribe_page,
             FIF.MICROPHONE,
@@ -774,50 +941,9 @@ class MainWindow(FluentWindow):
             position=NavigationItemPosition.TOP,
         )
 
-        # 1b. Class Slides Full-Screen Shortcut in Sidebar
-        self.navigationInterface.addItem(
-            routeKey="classSlidesNav",
-            icon=FIF.ALBUM,
-            text="Class Slides",
-            onClick=self._open_class_slides_view,
-            selectable=False,
-            position=NavigationItemPosition.TOP,
-        )
-
-        # 2. Past Recordings Interface
-        self.recordings_page = QWidget()
-        self.recordings_page.setObjectName("recordingsInterface")
-        rec_layout = QVBoxLayout(self.recordings_page)
-        rec_layout.setContentsMargins(24, 20, 24, 20)
-        self.recordings_list = RecordingsListWidget(self.recordings_page)
-        rec_layout.addWidget(self.recordings_list)
-
-        self.addSubInterface(
-            self.recordings_page,
-            FIF.HISTORY,
-            "Recordings",
-            position=NavigationItemPosition.TOP,
-        )
-
-        # 3. Settings (bottom navigation)
-        self.navigationInterface.addItem(
-            routeKey="settings",
-            icon=FIF.SETTING,
-            text="Settings",
-            onClick=self._open_settings,
-            selectable=False,
-            position=NavigationItemPosition.BOTTOM,
-        )
-
-        # 4. Diagnostic Logs (bottom navigation)
-        self.navigationInterface.addItem(
-            routeKey="logs",
-            icon=FIF.DOCUMENT,
-            text="Logs",
-            onClick=self._open_logs,
-            selectable=False,
-            position=NavigationItemPosition.BOTTOM,
-        )
+        # Completely hide the left navigation bar to maximize workspace
+        self.navigationInterface.hide()
+        self.navigationInterface.setFixedWidth(0)
 
         # Set default page
         self.switchTo(self.transcribe_page)
@@ -828,6 +954,46 @@ class MainWindow(FluentWindow):
         self._tp.pivot.setCurrentItem("slidesPage")
         self._on_pivot_changed("slidesPage")
 
+    def _open_subjects_tab(self):
+        """Switch directly to the dedicated Subjects Hub tab on top."""
+        self.switchTo(self.transcribe_page)
+        self._tp.pivot.setCurrentItem("subjectsPage")
+        self._on_pivot_changed("subjectsPage")
+        if hasattr(self._tp, "subjects_hub"):
+            self._tp.subjects_hub.refresh()
+
+    def _on_record_for_subject_from_hub(self, subj_name: str):
+        """Pre-select subject and switch to Live Record tab."""
+        if subj_name and hasattr(self, "subject_combo"):
+            idx = self.subject_combo.findData(subj_name)
+            if idx < 0:
+                idx = self.subject_combo.findText(subj_name)
+            if idx >= 0:
+                self.subject_combo.setCurrentIndex(idx)
+        self.switchTo(self.transcribe_page)
+        self._tp.pivot.setCurrentItem("recordPage")
+        self._on_pivot_changed("recordPage")
+
+    def _on_upload_for_subject_from_hub(self, file_or_subj: str):
+        """Pre-select subject or video and switch to Upload tab."""
+        if file_or_subj and os.path.exists(file_or_subj):
+            self._on_file_selected(file_or_subj)
+        self.switchTo(self.transcribe_page)
+        self._tp.pivot.setCurrentItem("uploadPage")
+        self._on_pivot_changed("uploadPage")
+
+    def _open_subjects_dialog(self):
+        """Open the Academic Subject & Course Management dialog."""
+        from ui.subject_dialog import SubjectManagementDialog
+        dlg = SubjectManagementDialog(self)
+        dlg.subjects_changed.connect(self.transcribe_page._populate_subject_dropdown)
+        dlg.subjects_changed.connect(self.recordings_list.refresh)
+        dlg.exec()
+        self.transcribe_page._populate_subject_dropdown()
+        self.recordings_list.refresh()
+        if hasattr(self._tp, "subjects_hub"):
+            self._tp.subjects_hub.refresh()
+
     def _connect_signals(self):
         """Wire up all signal connections for the transcribe interface."""
         tp = self.transcribe_page
@@ -837,6 +1003,7 @@ class MainWindow(FluentWindow):
 
         # Recording controls
         tp.source_mode_combo.currentIndexChanged.connect(self._on_audio_source_mode_changed)
+        tp.language_combo.currentIndexChanged.connect(self._on_language_changed)
         tp.record_btn.clicked.connect(self._toggle_recording)
         tp.pause_btn.clicked.connect(self._toggle_pause)
         tp.stop_btn.clicked.connect(self._stop_recording)
@@ -853,15 +1020,28 @@ class MainWindow(FluentWindow):
         # Slide Companion tab
         tp.slide_companion.pdf_imported_for_jargon.connect(lambda p: self._run_slide_extraction([p]))
         tp.slide_companion.slide_marked_here.connect(self._on_slide_marked_here)
+        tp.slide_companion.transcript_segments_provider = lambda: self._transcribed_segments
+        tp.slide_companion.set_time_provider(self._get_active_companion_timestamp)
+        tp.slide_companion.lecture_metadata_provider = lambda: {
+            "subject": tp.subject_combo.currentText(),
+            "session_type": tp.session_type_combo.currentText(),
+            "modules": [m.strip() for m in tp.modules_input.text().split(",") if m.strip()],
+        }
+        self.audio_player.position_changed.connect(self._on_audio_player_position_changed)
 
         # Recordings list
         self.recordings_list.recording_selected.connect(self._on_recording_loaded)
+        self.recordings_list.chat_with_recording.connect(self._on_chat_with_recording)
 
-        # Metadata & Slide OCR
-        tp.target_page_combo.currentIndexChanged.connect(self._on_target_page_changed)
-        tp.today_filter_cb.toggled.connect(self._repopulate_page_dropdown)
-        tp.clear_filter_btn.clicked.connect(lambda: tp.today_filter_cb.setChecked(False))
-        tp.refresh_pages_btn.clicked.connect(self._fetch_notion_pages)
+        # Subjects Hub signals
+        sh = tp.subjects_hub
+        sh.load_recording_requested.connect(self._on_recording_loaded)
+        sh.chat_with_recording_requested.connect(self._on_chat_with_recording)
+        sh.play_audio_requested.connect(self.audio_player.load_audio)
+        sh.record_for_subject_requested.connect(self._on_record_for_subject_from_hub)
+        sh.upload_for_subject_requested.connect(self._on_upload_for_subject_from_hub)
+
+        # Slide OCR & Imports
         tp.import_slides_btn.clicked.connect(self._import_slides_for_ocr)
         tp.paste_slide_btn.clicked.connect(self._paste_slide_from_clipboard)
 
@@ -875,8 +1055,6 @@ class MainWindow(FluentWindow):
         tp._export_actions["vtt"].triggered.connect(lambda: self._export_transcript("vtt"))
         tp._export_actions["md"].triggered.connect(lambda: self._export_transcript("md"))
         tp._export_actions["json"].triggered.connect(lambda: self._export_transcript("json"))
-        tp._export_actions["notebooklm"].triggered.connect(lambda: self._export_transcript("notebooklm"))
-        tp._export_actions["copy_notebooklm"].triggered.connect(self._copy_for_notebooklm)
         tp._export_actions["folder"].triggered.connect(self._open_transcripts_folder)
         tp.clear_btn.clicked.connect(self._clear_transcript)
 
@@ -887,8 +1065,7 @@ class MainWindow(FluentWindow):
         tp.transcribe_only_btn.clicked.connect(self._start_transcribe_only)
         tp.compare_models_btn.clicked.connect(self._open_model_comparison_flow)
         tp.study_guide_btn.clicked.connect(self._generate_study_guide)
-        tp.push_only_btn.clicked.connect(self._start_notion_push)
-        tp.action_btn.clicked.connect(self._start_transcribe_and_push)
+        tp.action_btn.clicked.connect(self._start_transcribe_and_generate_notes)
 
     # Convenience accessors for transcribe page widgets
     @property
@@ -902,6 +1079,10 @@ class MainWindow(FluentWindow):
     @property
     def source_mode_combo(self):
         return self._tp.source_mode_combo
+
+    @property
+    def language_combo(self):
+        return self._tp.language_combo
 
     @property
     def output_text(self):
@@ -968,22 +1149,6 @@ class MainWindow(FluentWindow):
         return self._tp.slide_companion
 
     @property
-    def target_page_combo(self):
-        return self._tp.target_page_combo
-
-    @property
-    def today_filter_cb(self):
-        return self._tp.today_filter_cb
-
-    @property
-    def clear_filter_btn(self):
-        return self._tp.clear_filter_btn
-
-    @property
-    def refresh_pages_btn(self):
-        return self._tp.refresh_pages_btn
-
-    @property
     def title_label(self):
         return self._tp.title_label
 
@@ -1040,10 +1205,6 @@ class MainWindow(FluentWindow):
         return self._tp.compare_models_btn
 
     @property
-    def push_only_btn(self):
-        return self._tp.push_only_btn
-
-    @property
     def action_btn(self):
         return self._tp.action_btn
 
@@ -1059,11 +1220,64 @@ class MainWindow(FluentWindow):
     def study_notes_text(self):
         return self._tp.study_notes_text
 
+    @property
+    def lecture_chat_widget(self):
+        return self._tp.lecture_chat_widget
+
+    @property
+    def view_chat_btn(self):
+        return self._tp.view_chat_btn
+
+    @property
+    def subject_combo(self):
+        return self._tp.subject_combo
+
+    @property
+    def session_type_combo(self):
+        return self._tp.session_type_combo
+
+    @property
+    def modules_input(self):
+        return self._tp.modules_input
+
+    @property
+    def audio_player_bar(self):
+        return getattr(self._tp, "audio_player_bar", None)
+
+    def _get_active_companion_timestamp(self) -> float:
+        """Return the current active lecture timestamp for 'We Are Here' marking."""
+        # 1. Live recording in progress
+        if hasattr(self, "recorder") and self.recorder and self.recorder.is_recording:
+            return float(self.recorder.get_duration())
+
+        # 2. Audio player active / scrubbed
+        if hasattr(self, "audio_player") and self.audio_player:
+            if self.audio_player.is_playing or self.audio_player.position_ms > 0:
+                return float(self.audio_player.position_seconds)
+
+        # 3. Last recorded elapsed time before reset
+        if getattr(self, "_tp", None) and getattr(self._tp, "_current_record_elapsed", 0.0) > 0.0:
+            return float(self._tp._current_record_elapsed)
+
+        return 0.0
+
+    def _on_audio_player_position_changed(self, pos_ms: int):
+        """Update slide companion time badge while reviewing/listening to audio recordings."""
+        if hasattr(self, "recorder") and self.recorder and self.recorder.is_recording:
+            return
+        if hasattr(self, "slide_companion"):
+            self.slide_companion.set_playback_time_display(
+                pos_ms / 1000.0,
+                is_playing=self.audio_player.is_playing,
+            )
+
     # ==========================
     # Tab & Audio Source Handling
     # ==========================
     def _on_pivot_changed(self, route_key: str):
-        is_fullscreen_tab = (route_key in ("slidesPage", "videoPage"))
+        if hasattr(self, "stackedWidget") and self.stackedWidget.currentWidget() != self.transcribe_page:
+            self.switchTo(self.transcribe_page)
+        is_fullscreen_tab = (route_key in ("slidesPage", "videoPage", "subjectsPage", "historyPage"))
         self._tp.set_full_screen_slides_mode(is_fullscreen_tab)
 
         if route_key == "slidesPage":
@@ -1083,10 +1297,18 @@ class MainWindow(FluentWindow):
             self._tp.stacked_widget.setCurrentWidget(self._tp.video_tab)
             self._audio_source_type = "video"
             self.video_tab.refresh_file_list()
+        elif route_key == "subjectsPage":
+            self._tp.stacked_widget.setCurrentWidget(self._tp.subjects_hub)
+            self._tp.subjects_hub.refresh()
+        elif route_key == "historyPage":
+            self._tp.stacked_widget.setCurrentWidget(self._tp.recordings_list)
+            self._tp.recordings_list.refresh()
 
     def _on_slide_marked_here(self, slide_num: int, elapsed_sec: float, slide_title: str):
         ts_str = format_timestamp(elapsed_sec)
         self.status_label.setText(f"Marked 'We Are Here': Slide {slide_num} ({slide_title}) at [{ts_str}]")
+        if getattr(self, "_is_gemini_live_active", False) and getattr(self, "gemini_live", None):
+            self.gemini_live.update_context(slide_context=slide_title)
         # Also append a live visual marker into the transcript preview if user is recording
         marker_html = (
             f'<p style="margin: 6px 0; padding: 4px 8px; background-color: #1e293b; border-left: 3px solid #38bdf8;">'
@@ -1101,12 +1323,12 @@ class MainWindow(FluentWindow):
         self.status_label.setText(f"Video detected: '{fname}'. Queuing for audio extraction & deletion...")
         self.video_watcher.queue_video(video_path)
 
-    def _render_transcript_segments(self, segments: List[Dict[str, Any]]):
-        """Render segment list into output text preview with clickable speaker badges and audio timestamps."""
-        self.output_text.clear()
+    def _render_transcript_segments(self, segments: List[Dict[str, Any]], interim: str = ""):
+        """Render segment list into output text preview with clickable speaker badges, audio timestamps, and live interim speech."""
         has_speakers = any("speaker" in seg for seg in segments)
         self.rename_speaker_btn.setEnabled(len(segments) > 0)
 
+        lines = []
         for seg in segments:
             ts = seg.get("timestamp_str", "")
             start_s = float(seg.get("start", 0.0))
@@ -1114,7 +1336,7 @@ class MainWindow(FluentWindow):
             text = seg.get("text", "").strip()
             ts_link = (
                 f'<a href="play:{start_s:.2f}-{end_s:.2f}" style="text-decoration: none;">'
-                f'<span style="color: #38bdf8; font-weight: bold; font-family: monospace; margin-right: 6px;">{ts}</span></a>'
+                f'<span style="color: #38bdf8; font-weight: bold; font-family: monospace; margin-right: 6px;">▶ {ts}</span></a>'
             )
             if has_speakers and "speaker" in seg:
                 speaker = seg.get("speaker", "Speaker 1")
@@ -1122,8 +1344,7 @@ class MainWindow(FluentWindow):
                 badge_html = format_speaker_badge_html(speaker, spk_id)
                 html_line = (
                     f'<p style="margin: 5px 0; line-height: 1.5;">'
-                    f'{badge_html}'
-                    f'{ts_link}'
+                    f'{badge_html} {ts_link}'
                     f'<span style="color: #f8fafc;">{text}</span>'
                     f'</p>'
                 )
@@ -1134,11 +1355,27 @@ class MainWindow(FluentWindow):
                     f'<span style="color: #f8fafc;">{text}</span>'
                     f'</p>'
                 )
-            self.output_text.append(html_line)
+            lines.append(html_line)
+
+        if interim:
+            lines.append(
+                f'<p style="margin: 6px 0; padding: 4px 8px; background-color: #0f172a; border-left: 3px solid #38bdf8; border-radius: 4px;">'
+                f'<span style="color: #38bdf8; font-weight: bold; font-family: monospace;">⚡ Live:</span> '
+                f'<span style="color: #cbd5e1; font-style: italic;">{interim}</span>'
+                f'</p>'
+            )
+
+        sb = self.output_text.verticalScrollBar()
+        was_at_bottom = sb.value() >= (sb.maximum() - 30) or sb.maximum() == 0
+        self.output_text.setHtml("".join(lines))
+        if was_at_bottom:
+            sb.setValue(sb.maximum())
 
         # Update stats
         unique_speakers = len(set(s.get("speaker", "Speaker 1") for s in segments)) if segments else 0
         words = sum(len(s.get("text", "").split()) for s in segments)
+        if interim:
+            words += len(interim.split())
         if unique_speakers > 1:
             self.stats_label.setText(f"{len(segments)} segments | {words} words | {unique_speakers} speakers  •  Click [time] to play or [Speaker] to rename")
         else:
@@ -1194,7 +1431,6 @@ class MainWindow(FluentWindow):
             self._model_a_segments = list(self._transcribed_segments)
             self._render_transcript_segments(self._transcribed_segments)
 
-            self.push_only_btn.setEnabled(True)
             self.compare_models_btn.setEnabled(True)
             self.export_btn.setEnabled(True)
 
@@ -1210,7 +1446,6 @@ class MainWindow(FluentWindow):
 
             self._render_transcript_segments(segments)
 
-            self.push_only_btn.setEnabled(True)
             self.compare_models_btn.setEnabled(True)
             self.study_guide_btn.setEnabled(True)
             self.export_btn.setEnabled(True)
@@ -1223,17 +1458,10 @@ class MainWindow(FluentWindow):
             filename = os.path.basename(file_path)
             words = data.get("word_count", sum(len(s.get("text", "").split()) for s in segments))
             speakers = data.get("speaker_count", len(set(s.get("speaker", "Speaker 1") for s in segments)))
-            pushed = data.get("notion", {}).get("pushed", False)
-            page_url = data.get("notion", {}).get("page_url")
-
-            if pushed and page_url:
-                self.status_label.setText(
-                    f"Loaded saved transcript for '{filename}' ({words} words, {speakers} spk) — previously synced to Notion."
-                )
-            else:
-                self.status_label.setText(
-                    f"Loaded saved transcript for '{filename}' ({words} words, {speakers} spk). Ready to push or export."
-                )
+            self.status_label.setText(
+                f"Loaded saved transcript for '{filename}' ({words} words, {speakers} spk)."
+            )
+            self._update_lecture_chat_context()
             return True
 
     def _on_video_audio_extracted(self, audio_path: str, video_name: str):
@@ -1257,6 +1485,24 @@ class MainWindow(FluentWindow):
         filename = os.path.basename(file_path)
         base_name = os.path.splitext(filename)[0]
         self.title_input.setText(f"Transcript - {base_name}")
+        self.audio_player.load_audio(file_path)
+
+        from transcript_storage import get_recording_academic_info
+        academic = get_recording_academic_info(file_path)
+        subj = academic.get("subject", "")
+        if subj and hasattr(self, "subject_combo"):
+            idx = self.subject_combo.findText(subj)
+            if idx >= 0:
+                self.subject_combo.setCurrentIndex(idx)
+        stype = academic.get("session_type", "")
+        if stype and hasattr(self, "session_type_combo"):
+            idx = self.session_type_combo.findText(stype)
+            if idx >= 0:
+                self.session_type_combo.setCurrentIndex(idx)
+        mods = academic.get("modules", [])
+        if mods and hasattr(self, "modules_input"):
+            self.modules_input.setText(", ".join(mods))
+
         loaded = self._load_saved_transcript(file_path)
         if not loaded:
             self.status_label.setText(f"Selected audio file: {filename}")
@@ -1267,11 +1513,67 @@ class MainWindow(FluentWindow):
         filename = os.path.basename(file_path)
         base_name = os.path.splitext(filename)[0]
         self.title_input.setText(f"Transcript - {base_name}")
-        # Switch to transcribe page
+        self.audio_player.load_audio(file_path)
+
+        from transcript_storage import get_recording_academic_info
+        academic = get_recording_academic_info(file_path)
+        subj = academic.get("subject", "")
+        if subj and hasattr(self, "subject_combo"):
+            idx = self.subject_combo.findText(subj)
+            if idx >= 0:
+                self.subject_combo.setCurrentIndex(idx)
+        stype = academic.get("session_type", "")
+        if stype and hasattr(self, "session_type_combo"):
+            idx = self.session_type_combo.findText(stype)
+            if idx >= 0:
+                self.session_type_combo.setCurrentIndex(idx)
+        mods = academic.get("modules", [])
+        if mods and hasattr(self, "modules_input"):
+            self.modules_input.setText(", ".join(mods))
+
+        # Update file indicators across Record and Upload views
+        if hasattr(self, "saved_file_label"):
+            self.saved_file_label.setText(f"Loaded: {filename}")
+        if hasattr(self, "drop_zone"):
+            self.drop_zone.set_file(file_path)
+
+        # Switch to transcribe page and show Upload tab with the loaded file
         self.switchTo(self.transcribe_page)
+        if hasattr(self._tp, "pivot"):
+            self._tp.pivot.setCurrentItem("uploadPage")
+
         loaded = self._load_saved_transcript(file_path)
         if not loaded:
             self.status_label.setText(f"Loaded archive recording: {filename}. Ready to transcribe.")
+        else:
+            self.status_label.setText(
+                f"Loaded archive recording: {filename} (previous transcript loaded). Click 'Transcribe Only' to re-transcribe."
+            )
+        self._update_lecture_chat_context()
+
+    def _update_lecture_chat_context(self):
+        """Pass the current lecture's transcript, notes, and metadata to Ask Lecture AI."""
+        if hasattr(self, "lecture_chat_widget"):
+            subj = self.subject_combo.currentData() or self.subject_combo.currentText()
+            stype = self.session_type_combo.currentText()
+            mods = [m.strip() for m in self.modules_input.text().split(",") if m.strip()]
+            fname = os.path.basename(self._current_audio_file or "")
+            self.lecture_chat_widget.set_lecture_context(
+                transcript_text=self._transcription_text,
+                study_notes=self._study_notes,
+                subject=subj,
+                session_type=stype,
+                modules=mods,
+                filename=fname,
+            )
+
+    def _on_chat_with_recording(self, file_path: str):
+        """Immediately open an archive recording in the Ask Lecture AI panel."""
+        self._on_recording_loaded(file_path)
+        self._update_lecture_chat_context()
+        self.switchTo(self.transcribe_page)
+        if hasattr(self._tp, "switch_to_chat"):
+            self._tp.switch_to_chat()
 
     # ==========================
     # Audio Recording Handlers
@@ -1297,10 +1599,13 @@ class MainWindow(FluentWindow):
         if saved_file and os.path.exists(saved_file):
             self._current_audio_file = saved_file
             fname = os.path.basename(saved_file)
-            self.record_status_badge.setText("RECORDING SAVED")
-            self.status_label.setText(f"Recording saved: {fname}")
             self.saved_file_label.setText(f"Saved: {fname}")
-            self.recordings_list.refresh()
+            if not self._is_gemini_live_active:
+                self.record_status_badge.setText("RECORDING SAVED")
+                self.status_label.setText(f"Recording saved: {fname}")
+                self.recordings_list.refresh()
+                if hasattr(self._tp, "subjects_hub"):
+                    self._tp.subjects_hub.refresh()
 
     def _open_recordings_folder(self):
         RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
@@ -1338,6 +1643,14 @@ class MainWindow(FluentWindow):
             self.meter_level_label.setText("Combined Level (Mic + System):")
             self.status_label.setText("Audio source set to: Both (Microphone + System Audio mixed)")
 
+    def _on_language_changed(self, index: int):
+        lang = self.language_combo.currentData() or "en"
+        config_manager.set("whisper_language", lang)
+        config_manager.save()
+        if self._is_gemini_live_active and self.gemini_live:
+            self.gemini_live.update_context(language=lang)
+        self.status_label.setText(f"Transcription language set to: {self.language_combo.currentText()}")
+
     def _on_record_started(self):
         self.record_btn.setText("Recording...")
         self.record_btn.setIcon(FIF.MICROPHONE)
@@ -1345,15 +1658,95 @@ class MainWindow(FluentWindow):
         self.pause_btn.setEnabled(True)
         self.stop_btn.setEnabled(True)
         self.source_mode_combo.setEnabled(False)
-        self.record_status_badge.setText("RECORDING")
+        self.language_combo.setEnabled(False)
 
-        src = self.recorder.audio_source
-        if src == "system":
-            self.status_label.setText("Recording system audio (speakers loopback)...")
-        elif src == "both":
-            self.status_label.setText("Recording both microphone and system audio...")
+        # Check internet connectivity & Gemini API configuration for automatic live transcription
+        from gemini_live import GeminiLiveTranscriber, is_internet_available
+        is_online = is_internet_available(timeout=1.2)
+        api_key = config_manager.get("gemini_api_key", "").strip() or os.environ.get("GEMINI_API_KEY", "").strip() or os.environ.get("GOOGLE_API_KEY", "").strip()
+
+        if is_online and api_key:
+            self._is_gemini_live_active = True
+            model = config_manager.get("gemini_model", "Gemini 3.5 Transcribe Live")
+            self.record_status_badge.setText("RECORDING • GEMINI LIVE ✨")
+            self.status_label.setText(f"⚡ Live transcription active with Google Gemini ({model})")
+
+            # Collect active course jargon & slide context for Gemini
+            raw_jargon = self.jargon_input.text().strip() if hasattr(self, "jargon_input") else ""
+            slide_topic = ""
+            if hasattr(self, "slide_companion") and self.slide_companion and self.slide_companion.current_deck:
+                deck = self.slide_companion.current_deck
+                if 0 <= deck.preview_idx < len(deck.titles):
+                    slide_topic = deck.titles[deck.preview_idx]
+
+            # Clear transcript view for the fresh recording session
+            self._transcribed_segments = []
+            self._transcription_text = ""
+            self.output_text.clear()
+
+            selected_lang = config_manager.get("whisper_language", "en") or "en"
+            self.gemini_live = GeminiLiveTranscriber(
+                api_key=api_key,
+                model=model,
+                sample_rate=self.recorder.sample_rate,
+                language=selected_lang,
+                jargon_prompt=raw_jargon,
+                slide_context=slide_topic,
+                parent=self,
+            )
+            self.gemini_live.segment_received.connect(self._on_segment_received)
+            self.gemini_live.interim_received.connect(self._on_interim_received)
+            self.gemini_live.transcription_completed.connect(self._on_gemini_live_completed)
+            self.gemini_live.status_changed.connect(self._on_worker_status)
+            self.gemini_live.error_occurred.connect(self._on_gemini_live_error)
+            self.recorder.audio_chunk_recorded.connect(self.gemini_live.process_audio_chunk)
+        elif is_online and not api_key:
+            self._is_gemini_live_active = False
+            self.record_status_badge.setText("RECORDING • LOCAL")
+            self.status_label.setText("Recording audio locally. Tip: Add Gemini API key in Settings for real-time live transcription.")
         else:
-            self.status_label.setText("Recording microphone audio...")
+            self._is_gemini_live_active = False
+            self.record_status_badge.setText("RECORDING • OFFLINE")
+            self.status_label.setText("Recording audio locally (Offline). Whisper will transcribe when finished.")
+
+    def _on_gemini_live_completed(self, segments: List[Dict[str, Any]], full_text: str):
+        self._is_gemini_live_active = False
+        self._last_model_name = "gemini-live"
+        self._current_interim = ""
+
+        # If segments is empty but we had segments accumulated in self._transcribed_segments, keep them!
+        if not segments and self._transcribed_segments:
+            segments = list(self._transcribed_segments)
+            full_text = " ".join(s.get("text", "") for s in segments).strip()
+
+        # If still empty but an audio file was recorded, auto-fallback to local Whisper so zero transcript is lost!
+        if not segments and self._current_audio_file and os.path.exists(self._current_audio_file):
+            logger.info("Gemini Live produced 0 segments. Initiating automatic local Whisper transcription.")
+            self.status_label.setText("Live stream produced 0 segments; transcribing recording with Whisper...")
+            self.record_status_badge.setText("RECORDING SAVED • TRANSCRIBING...")
+            self._start_transcription()
+            return
+
+        self._on_transcription_completed(segments, full_text)
+        self.record_status_badge.setText("RECORDING SAVED • TRANSCRIBED ✨")
+        if segments:
+            self.status_label.setText(
+                f"✅ Gemini Live complete! Transcribed {len(segments)} segments in real-time."
+            )
+        else:
+            self.status_label.setText("✅ Gemini Live complete (audio saved locally).")
+
+    def _on_gemini_live_error(self, err_msg: str):
+        self.record_status_badge.setText("RECORDING • LOCAL FALLBACK")
+        self.status_label.setText(f"Gemini Live notice: {err_msg}. Continuing local recording.")
+        InfoBar.warning(
+            title="Gemini Live Notice",
+            content=err_msg,
+            isClosable=True,
+            duration=8000,
+            position=InfoBarPosition.TOP,
+            parent=self,
+        )
 
     def _on_record_paused(self, is_paused: bool):
         if is_paused:
@@ -1364,10 +1757,14 @@ class MainWindow(FluentWindow):
         else:
             self.pause_btn.setText("Pause")
             self.pause_btn.setIcon(FIF.PAUSE)
-            self.record_status_badge.setText("RECORDING")
+            if self._is_gemini_live_active:
+                self.record_status_badge.setText("RECORDING • GEMINI LIVE ✨")
+            else:
+                self.record_status_badge.setText("RECORDING")
             self.status_label.setText("Recording resumed.")
 
     def _on_record_finished(self, file_path: str):
+        self._current_audio_file = file_path
         self.record_btn.setText("Start Recording")
         self.record_btn.setIcon(FIF.MICROPHONE)
         self.record_btn.setEnabled(True)
@@ -1376,8 +1773,24 @@ class MainWindow(FluentWindow):
         self.pause_btn.setEnabled(False)
         self.stop_btn.setEnabled(False)
         self.source_mode_combo.setEnabled(True)
+        self.language_combo.setEnabled(True)
         self.audio_meter.reset()
         self.slide_companion.set_recording_time_display(self._tp._current_record_elapsed, is_recording=False)
+        self.audio_player.load_audio(file_path)
+
+        if self._is_gemini_live_active and self.gemini_live:
+            try:
+                self.recorder.audio_chunk_recorded.disconnect(self.gemini_live.process_audio_chunk)
+            except Exception:
+                pass
+            self.status_label.setText("Finalizing Gemini Live transcript...")
+            self.gemini_live.finish()
+        else:
+            self.record_status_badge.setText("RECORDING SAVED")
+            fname = os.path.basename(file_path)
+            self.status_label.setText(f"Recording saved: {fname}. Ready to transcribe.")
+            self.saved_file_label.setText(f"Saved: {fname}")
+            self.recordings_list.refresh()
 
     def _on_audio_level(self, level: float):
         self.audio_meter.set_level(level)
@@ -1399,15 +1812,8 @@ class MainWindow(FluentWindow):
         )
 
     # ==========================
-    # Notion & Settings Handling
+    # Settings & Diagnostics
     # ==========================
-    def _refresh_notion_status(self):
-        """Update Notion status — no badge widget in FluentWindow, use status label."""
-        if config_manager.is_notion_configured():
-            self.status_label.setText("Notion: Configured")
-        else:
-            self.status_label.setText("Notion: Unconfigured — open Settings to configure")
-
     def _open_settings(self):
         dlg = SettingsDialog(self)
         dlg.settings_saved.connect(self._on_settings_saved)
@@ -1435,7 +1841,6 @@ class MainWindow(FluentWindow):
         )
 
     def _on_settings_saved(self):
-        self._refresh_notion_status()
         current_model = config_manager.get("whisper_model", "base")
         idx = self.quick_model_combo.findText(current_model)
         if idx >= 0:
@@ -1468,93 +1873,14 @@ class MainWindow(FluentWindow):
         self.recorder.set_input_device(config_manager.get("input_device_id", None))
         self.recorder.set_loopback_device(config_manager.get("loopback_device_id", None))
 
-        # Refresh Notion pages
-        if config_manager.is_notion_configured():
-            self._fetch_notion_pages()
-
-    def _fetch_notion_pages(self):
-        """Fetch pages from Notion database in background."""
-        token = config_manager.get("notion_token")
-        db_id = config_manager.get("database_id")
-        if not token or not db_id:
-            return
-
-        self.refresh_pages_btn.setEnabled(False)
-        self.refresh_pages_btn.setText("Loading...")
-
-        self._pages_worker = NotionFetchPagesWorker(token, db_id, parent=self)
-        self._pages_worker.pages_fetched.connect(self._on_pages_fetched)
-        self._pages_worker.error_occurred.connect(self._on_pages_fetch_failed)
-        self._pages_worker.start()
-
-    def _on_pages_fetched(self, pages: List[Dict[str, Any]]):
-        self.refresh_pages_btn.setEnabled(True)
-        self.refresh_pages_btn.setText("Refresh")
-        self._notion_pages = pages
-        self._repopulate_page_dropdown()
-
-    def _on_pages_fetch_failed(self, err_msg: str):
-        self.refresh_pages_btn.setEnabled(True)
-        self.refresh_pages_btn.setText("Refresh")
-        self.status_label.setText(f"Notion pages query error: {err_msg}")
-
-    def _repopulate_page_dropdown(self):
-        """Re-render the items in target_page_combo based on filter state."""
-        prev_selected_id = self.target_page_combo.currentData()
-        self.target_page_combo.blockSignals(True)
-        self.target_page_combo.clear()
-
-        self.target_page_combo.addItem("[+ Create New Page in Database]", icon=FIF.ADD, userData=None)
-
-        filter_today = self.today_filter_cb.isChecked()
-        displayed_count = 0
-        today_count = sum(1 for p in self._notion_pages if p.get("is_today"))
-        total_count = len(self._notion_pages)
-
-        for p in self._notion_pages:
-            if filter_today and not p.get("is_today"):
-                continue
-
-            time_str = f" ({p.get('created_display', '')})" if p.get("created_display") else ""
-            item_text = f"{p['title']}{time_str}"
-            self.target_page_combo.addItem(item_text, icon=FIF.DOCUMENT, userData=p["id"])
-            displayed_count += 1
-
-        if prev_selected_id:
-            for i in range(self.target_page_combo.count()):
-                if self.target_page_combo.itemData(i) == prev_selected_id:
-                    self.target_page_combo.setCurrentIndex(i)
-                    break
-
-        self.target_page_combo.blockSignals(False)
-        self._on_target_page_changed(self.target_page_combo.currentIndex())
-
-        filter_status = "Today only" if filter_today else "All pages"
-        self.today_filter_cb.setToolTip(
-            f"Showing {displayed_count} of {total_count} pages ({today_count} created today). Mode: {filter_status}."
-        )
-
-    def _on_target_page_changed(self, index: int):
-        target_page_id = self.target_page_combo.currentData()
-        if target_page_id:
-            self.title_label.setText("Section Heading:")
-            self.title_input.setEnabled(True)
-            self.title_input.setPlaceholderText("e.g. Part 2 - Post-Break (or leave blank for timestamp)")
-            self.title_input.setText("")
-            self.tags_input.setEnabled(False)
-            self.push_only_btn.setText("Push (Append to Page)")
-            self.action_btn.setText("Transcribe & Append to Page")
-            self.status_label.setText("Target set to existing Notion page. Ready to append.")
-        else:
-            self.title_label.setText("Page Title:")
-            self.title_input.setEnabled(True)
-            self.title_input.setPlaceholderText("Meeting / Audio Note Title")
-            if not self.title_input.text() and self._current_audio_file:
-                base = os.path.splitext(os.path.basename(self._current_audio_file))[0]
-                self.title_input.setText(f"Transcript - {base}")
-            self.tags_input.setEnabled(True)
-            self.push_only_btn.setText("Push to Notion")
-            self.action_btn.setText("Transcribe & Push to Notion")
+        # Update Language combo
+        current_lang = config_manager.get("whisper_language", "en") or "en"
+        for i in range(self.language_combo.count()):
+            if self.language_combo.itemData(i) == current_lang:
+                self.language_combo.blockSignals(True)
+                self.language_combo.setCurrentIndex(i)
+                self.language_combo.blockSignals(False)
+                break
 
     # ==========================
     # Transcription Logic
@@ -1564,49 +1890,50 @@ class MainWindow(FluentWindow):
         if self.recorder.is_recording:
             self._stop_recording()
 
-        current_route = self._tp.pivot.currentItem().routeKey if self._tp.pivot.currentItem() else "recordPage"
+        current_route = "recordPage"
+        if hasattr(self._tp, "pivot") and hasattr(self._tp.pivot, "currentRouteKey"):
+            current_route = self._tp.pivot.currentRouteKey() or "recordPage"
 
-        if current_route == "recordPage":
-            if not self._current_audio_file or not os.path.exists(self._current_audio_file):
-                InfoBar.warning(
-                    title="No Audio Recorded",
-                    content="Please record audio first or switch to Upload/Video tab.",
-                    isClosable=True,
-                    duration=5000,
-                    position=InfoBarPosition.TOP,
-                    parent=self,
-                )
-                return None
-            return self._current_audio_file
-        elif current_route == "uploadPage":
+        # 1. If upload tab is active and user selected a file via drop zone, use it
+        if current_route == "uploadPage" and hasattr(self, "drop_zone"):
             path = self.drop_zone.get_selected_path()
-            if not path or not os.path.exists(path):
-                InfoBar.warning(
-                    title="No Audio File Selected",
-                    content="Please select or drop an audio file to transcribe.",
-                    isClosable=True,
-                    duration=5000,
-                    position=InfoBarPosition.TOP,
-                    parent=self,
-                )
-                return None
-            return path
-        elif current_route == "videoPage":
-            if not self._current_audio_file or not os.path.exists(self._current_audio_file):
-                InfoBar.warning(
-                    title="No Video Audio Ready",
-                    content="Please drop a video into the Video Inbox or browse a video file.",
-                    isClosable=True,
-                    duration=5000,
-                    position=InfoBarPosition.TOP,
-                    parent=self,
-                )
-                return None
+            if path and os.path.exists(path):
+                self._current_audio_file = path
+                return path
+
+        # 2. If an active audio file is already loaded (from recordings archive, upload, or recording)
+        if self._current_audio_file and os.path.exists(self._current_audio_file):
             return self._current_audio_file
+
+        # 3. If no audio file is available, show contextual guide
+        if current_route == "recordPage":
+            InfoBar.warning(
+                title="No Audio Recorded",
+                content="Please record audio first, load a recording from Archive, or switch to Upload tab.",
+                isClosable=True,
+                duration=5000,
+                position=InfoBarPosition.TOP,
+                parent=self,
+            )
+        elif current_route == "uploadPage":
+            InfoBar.warning(
+                title="No Audio File Selected",
+                content="Please select or drop an audio file to transcribe.",
+                isClosable=True,
+                duration=5000,
+                position=InfoBarPosition.TOP,
+                parent=self,
+            )
+        elif current_route == "videoPage":
+            InfoBar.warning(
+                title="No Video Audio Ready",
+                content="Please drop a video into the Video Inbox or browse a video file.",
+                isClosable=True,
+                duration=5000,
+                position=InfoBarPosition.TOP,
+                parent=self,
+            )
         else:
-            # Fallback
-            if self._current_audio_file and os.path.exists(self._current_audio_file):
-                return self._current_audio_file
             InfoBar.warning(
                 title="No Audio Available",
                 content="Please select or record audio first.",
@@ -1615,14 +1942,13 @@ class MainWindow(FluentWindow):
                 position=InfoBarPosition.TOP,
                 parent=self,
             )
-            return None
+        return None
 
-    def _start_transcription(self, auto_push: bool = False):
+    def _start_transcription(self):
         audio_path = self._validate_audio_source()
         if not audio_path:
             return
 
-        self._auto_push_after_transcription = auto_push
         self._transcribed_segments.clear()
         self._transcription_text = ""
         self.output_text.clear()
@@ -1666,23 +1992,27 @@ class MainWindow(FluentWindow):
         self._transcription_worker.start()
 
     def _start_transcribe_only(self):
-        self._start_transcription(auto_push=False)
+        self._auto_generate_notes_after_transcription = False
+        self._start_transcription()
 
-    def _start_transcribe_and_push(self):
-        if not config_manager.is_notion_configured():
-            w = MessageBox(
-                "Notion Credentials Required",
-                "Notion Integration Token and Database ID have not been configured.\n\n"
-                "Would you like to configure them now in Settings?",
-                self,
+    def _start_transcribe_and_generate_notes(self):
+        if not self._current_audio_file and not self._transcribed_segments:
+            InfoBar.warning(
+                title="No Audio or Transcript",
+                content="Please record audio or upload a media file first.",
+                isClosable=True,
+                duration=5000,
+                position=InfoBarPosition.TOP,
+                parent=self,
             )
-            w.yesButton.setText("Open Settings")
-            w.cancelButton.setText("Cancel")
-            if w.exec():
-                self._open_settings()
             return
 
-        self._start_transcription(auto_push=True)
+        if self._transcribed_segments:
+            # Transcript already generated, jump straight to generating study notes!
+            self._generate_study_guide()
+        else:
+            self._auto_generate_notes_after_transcription = True
+            self._start_transcription()
 
     def _on_worker_status(self, text: str):
         self.status_label.setText(text)
@@ -1691,24 +2021,20 @@ class MainWindow(FluentWindow):
         self.progress_bar.setValue(percent)
         self.pct_label.setText(f"{percent}%")
 
+    def _on_interim_received(self, interim_text: str):
+        """Handle streaming sub-second interim speech words from Gemini Live."""
+        self._current_interim = interim_text
+        self._render_transcript_segments(self._transcribed_segments, interim=interim_text)
+        self.status_label.setText(f"⚡ Live: {interim_text}")
+
     def _on_segment_received(self, seg: Dict[str, Any]):
         self._transcribed_segments.append(seg)
+        self._current_interim = ""
+        self._render_transcript_segments(self._transcribed_segments)
 
-        ts = seg.get("timestamp_str", "")
-        start_s = float(seg.get("start", 0.0))
-        end_s = float(seg.get("end", start_s + 2.0))
-        text = seg.get("text", "")
-        html_segment = (
-            f'<p style="margin: 4px 0;">'
-            f'<a href="play:{start_s:.2f}-{end_s:.2f}" style="text-decoration: none;">'
-            f'<span style="color: #38bdf8; font-weight: bold; font-family: monospace;">▶ {ts}</span></a> '
-            f'<span style="color: #f8fafc;">{text}</span>'
-            f'</p>'
-        )
-        self.output_text.append(html_segment)
-
-        words = sum(len(s.get("text", "").split()) for s in self._transcribed_segments)
-        self.stats_label.setText(f"{len(self._transcribed_segments)} segments | {words} words")
+        # Real-time auto slide suggestion / tracking
+        if hasattr(self, "slide_companion"):
+            self.slide_companion.process_spoken_text(seg.get("text", ""), float(seg.get("start", 0.0)))
 
     def _on_transcription_completed(self, segments: List[Dict[str, Any]], full_text: str):
         self._transcription_text = full_text
@@ -1716,13 +2042,22 @@ class MainWindow(FluentWindow):
         self._model_a_segments = list(segments)
         self._model_a_name = self._last_model_name
         self._set_ui_processing_state(False)
-        self.push_only_btn.setEnabled(len(segments) > 0)
         self.compare_models_btn.setEnabled(len(segments) > 0)
         self.study_guide_btn.setEnabled(len(segments) > 0)
         self.export_btn.setEnabled(len(segments) > 0)
         self.rename_speaker_btn.setEnabled(len(segments) > 0)
 
         self._render_transcript_segments(segments)
+
+        # Auto-align slide timeline if slides are loaded
+        if hasattr(self, "slide_companion"):
+            self.slide_companion.auto_sync_timeline_from_transcript(segments)
+
+        # If user clicked "Transcribe & Generate Notes", kick off study guide generation
+        if getattr(self, "_auto_generate_notes_after_transcription", False) and len(segments) > 0:
+            self._auto_generate_notes_after_transcription = False
+            self.status_label.setText("Transcription complete! Generating AI study notes...")
+            self._generate_study_guide()
 
         # Auto-save locally
         if self._current_audio_file:
@@ -1735,9 +2070,15 @@ class MainWindow(FluentWindow):
                     device=config_manager.get("whisper_device", "cuda"),
                     compute_type=config_manager.get("compute_type", "float16"),
                     language=config_manager.get("whisper_language") or None,
+                    prompt=self.jargon_input.text().strip(),
+                    subject=self.subject_combo.currentText() if hasattr(self, "subject_combo") else "",
+                    session_type=self.session_type_combo.currentText() if hasattr(self, "session_type_combo") else "",
+                    modules=[m.strip() for m in self.modules_input.text().split(",") if m.strip()] if hasattr(self, "modules_input") else [],
                     study_notes=self._study_notes or self.study_notes_text.toPlainText().strip(),
                 )
                 self.recordings_list.refresh()
+                if hasattr(self._tp, "subjects_hub"):
+                    self._tp.subjects_hub.refresh()
             except Exception as e:
                 print(f"[Main] Failed to save local transcript: {e}")
 
@@ -1751,9 +2092,12 @@ class MainWindow(FluentWindow):
             self.status_label.setText(
                 f"Transcription complete & saved locally ({words} words)."
             )
+        self._update_lecture_chat_context()
 
-        if self._auto_push_after_transcription:
-            self._start_notion_push()
+        # Auto-generate study notes if requested from primary action
+        if self._auto_generate_notes_after_transcription:
+            self._auto_generate_notes_after_transcription = False
+            self._generate_study_guide()
 
     def _on_transcription_error(self, err_message: str):
         self._set_ui_processing_state(False)
@@ -1900,137 +2244,10 @@ class MainWindow(FluentWindow):
 
         words = sum(len(s.get("text", "").split()) for s in self._transcribed_segments)
         self.stats_label.setText(f"{len(self._transcribed_segments)} segments | {words} words (Verified ✓)")
-        self.push_only_btn.setEnabled(True)
         self.compare_models_btn.setEnabled(True)
+        self.study_guide_btn.setEnabled(True)
         self.status_label.setText(
-            f"Verified multi-model transcript applied! ({len(merged_segments)} segments). Ready to push to Notion."
-        )
-
-    # ==========================
-    # Notion Push Logic
-    # ==========================
-    def _start_notion_push(self):
-        if not config_manager.is_notion_configured():
-            InfoBar.warning(
-                title="Notion Not Configured",
-                content="Please configure your Notion credentials in Settings first.",
-                isClosable=True, duration=5000, position=InfoBarPosition.TOP, parent=self,
-            )
-            self._open_settings()
-            return
-
-        if not self._transcribed_segments:
-            InfoBar.warning(
-                title="No Transcript",
-                content="There is no transcribed text to push. Please transcribe audio first.",
-                isClosable=True, duration=5000, position=InfoBarPosition.TOP, parent=self,
-            )
-            return
-
-        target_page_id = self.target_page_combo.currentData()
-        title = self.title_input.text().strip()
-        if not target_page_id and not title:
-            title = f"Transcript - {datetime.now().strftime('%Y-%m-%d %H:%M')}"
-
-        raw_tags = self.tags_input.text().strip()
-        tags = [t.strip() for t in raw_tags.split(",") if t.strip()]
-
-        source_name = os.path.basename(self._current_audio_file or "Microphone Recording")
-        metadata = {
-            "source": source_name,
-            "model": config_manager.get("whisper_model", "base"),
-            "section_title": title if (target_page_id and title) else None,
-        }
-        if self._transcribed_segments:
-            last_end = self._transcribed_segments[-1].get("end", 0)
-            metadata["duration"] = format_timestamp(last_end)
-
-        current_study_notes = self._study_notes or self.study_notes_text.toPlainText().strip()
-        slide_annotations_md = self.slide_companion.format_annotations_summary_markdown()
-        if slide_annotations_md:
-            current_study_notes = (
-                f"{slide_annotations_md}\n\n{current_study_notes}".strip()
-                if current_study_notes
-                else slide_annotations_md
-            )
-        if current_study_notes:
-            metadata["study_notes"] = current_study_notes
-
-        self._set_ui_processing_state(True)
-        if target_page_id:
-            self.status_label.setText("Appending transcript to existing Notion page...")
-        else:
-            self.status_label.setText("Uploading transcript to Notion...")
-        self.progress_bar.setValue(50)
-        self.pct_label.setText("Pushing...")
-
-        token = config_manager.get("notion_token")
-        db_id = config_manager.get("database_id")
-
-        self._notion_worker = NotionPushWorker(
-            token=token,
-            database_id=db_id,
-            title=title,
-            segments=self._transcribed_segments,
-            tags=tags,
-            metadata=metadata,
-            target_page_id=target_page_id,
-            parent=self,
-        )
-        self._notion_worker.status_changed.connect(self._on_worker_status)
-        self._notion_worker.finished.connect(self._on_notion_push_success)
-        self._notion_worker.error_occurred.connect(self._on_notion_push_error)
-        self._notion_worker.start()
-
-    def _on_notion_push_success(self, page_url: str):
-        self._set_ui_processing_state(False)
-        self.progress_bar.setValue(100)
-        self.pct_label.setText("100%")
-
-        target_page_id = self.target_page_combo.currentData()
-        if target_page_id:
-            msg = "Successfully appended transcript to Notion page!"
-        else:
-            msg = "Successfully published to Notion database!"
-
-        self.status_label.setText(msg)
-
-        # Show fluent success InfoBar with Open link
-        info_bar = InfoBar.success(
-            title="Notion Upload Complete",
-            content=msg,
-            isClosable=True,
-            duration=15000,
-            position=InfoBarPosition.TOP,
-            parent=self,
-        )
-        # Add an "Open in Notion" button to the InfoBar
-        open_btn = PushButton("🔗 Open in Notion")
-        open_btn.clicked.connect(lambda: webbrowser.open(page_url))
-        info_bar.addWidget(open_btn)
-
-        self._fetch_notion_pages()
-
-        if self._current_audio_file:
-            try:
-                update_transcript_notion_info(self._current_audio_file, page_url)
-                self.recordings_list.refresh()
-            except Exception as e:
-                print(f"[Main] Error updating local transcript with Notion info: {e}")
-
-        if config_manager.get("auto_open_notion", True):
-            webbrowser.open(page_url)
-
-    def _on_notion_push_error(self, error_message: str):
-        self._set_ui_processing_state(False)
-        self.status_label.setText("Notion upload failed.")
-        InfoBar.error(
-            title="Notion API Error",
-            content=f"Failed to push transcript to Notion: {error_message[:200]}",
-            isClosable=True,
-            duration=10000,
-            position=InfoBarPosition.TOP,
-            parent=self,
+            f"Verified multi-model transcript applied! ({len(merged_segments)} segments). Ready to generate notes."
         )
 
     # ==========================
@@ -2041,19 +2258,15 @@ class MainWindow(FluentWindow):
         self.transcribe_only_btn.setEnabled(not is_processing)
         self.compare_models_btn.setEnabled(not is_processing and len(self._transcribed_segments) > 0)
         self.study_guide_btn.setEnabled(not is_processing and len(self._transcribed_segments) > 0)
-        self.push_only_btn.setEnabled(not is_processing and len(self._transcribed_segments) > 0)
+        self.export_btn.setEnabled(not is_processing and len(self._transcribed_segments) > 0)
         self._tp.pivot.setEnabled(not is_processing)
         self.source_mode_combo.setEnabled(not is_processing)
+        self.language_combo.setEnabled(not is_processing)
         self.quick_model_combo.setEnabled(not is_processing)
         self.benchmark_btn.setEnabled(not is_processing)
         self.diarize_cb.setEnabled(not is_processing)
-        self.target_page_combo.setEnabled(not is_processing)
-        self.today_filter_cb.setEnabled(not is_processing)
-        self.clear_filter_btn.setEnabled(not is_processing)
-        self.refresh_pages_btn.setEnabled(not is_processing)
-        target_page_id = self.target_page_combo.currentData()
-        self.title_input.setEnabled(not is_processing and not target_page_id)
-        self.tags_input.setEnabled(not is_processing and not target_page_id)
+        self.title_input.setEnabled(not is_processing)
+        self.tags_input.setEnabled(not is_processing)
 
     def _copy_to_clipboard(self):
         plain_text = self.output_text.toPlainText()
@@ -2078,6 +2291,7 @@ class MainWindow(FluentWindow):
             )
 
     def _clear_transcript(self):
+        self._current_interim = ""
         self.output_text.clear()
         self.study_notes_text.clear()
         self._study_notes = ""
@@ -2085,7 +2299,6 @@ class MainWindow(FluentWindow):
         self._model_a_segments.clear()
         self._transcription_text = ""
         self.stats_label.setText("0 segments | 0 words")
-        self.push_only_btn.setEnabled(False)
         self.compare_models_btn.setEnabled(False)
         self.study_guide_btn.setEnabled(False)
         self.export_btn.setEnabled(False)
@@ -2153,26 +2366,6 @@ class MainWindow(FluentWindow):
                     output_path=save_path,
                     metadata=meta,
                 )
-            elif format_type == "notebooklm":
-                meta = {
-                    "title": self.title_input.text() or f"Lecture: {base_name}",
-                    "model": self._last_model_name,
-                    "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                    "tags": self.tags_input.text().strip() or "Education, Lecture",
-                    "duration": self.timer_label.text(),
-                }
-                study_notes = self._study_notes or self.study_notes_text.toPlainText().strip()
-                slide_annotations_md = self.slide_companion.format_annotations_summary_markdown()
-                if slide_annotations_md:
-                    study_notes = f"{slide_annotations_md}\n\n{study_notes}".strip() if study_notes else slide_annotations_md
-                export_to_notebooklm(
-                    audio_path=self._current_audio_file or "",
-                    segments=self._transcribed_segments,
-                    full_text=self._transcription_text,
-                    output_path=save_path,
-                    study_notes=study_notes,
-                    metadata=meta,
-                )
             elif format_type == "json":
                 import json
                 from transcript_storage import load_transcript
@@ -2209,79 +2402,28 @@ class MainWindow(FluentWindow):
                 parent=self,
             )
 
-    def _copy_for_notebooklm(self):
-        """Format the current lecture transcript and study guide for NotebookLM and copy to clipboard."""
-        if not self._transcription_text:
-            InfoBar.info(
-                title="Nothing to Copy",
-                content="Please transcribe audio first.",
-                isClosable=True,
-                duration=2000,
-                position=InfoBarPosition.BOTTOM_RIGHT,
-                parent=self,
-            )
-            return
-
-        from ai_service import AIService
-        base_name = Path(self._current_audio_file).stem if self._current_audio_file else "Lecture"
-        title = self.title_input.text() or f"Lecture: {base_name}"
-        date_str = datetime.now().strftime("%Y-%m-%d %H:%M")
-        model = self._last_model_name
-        tags = self.tags_input.text().strip() or "Education, Lecture"
-        duration = self.timer_label.text()
-        unique_speakers = list(dict.fromkeys(s.get("speaker", "Speaker 1") for s in self._transcribed_segments if "speaker" in s))
-        speaker_count = len(unique_speakers) or 1
-        study_notes = self._study_notes or self.study_notes_text.toPlainText().strip()
-        slide_annotations_md = self.slide_companion.format_annotations_summary_markdown()
-        if slide_annotations_md:
-            study_notes = f"{slide_annotations_md}\n\n{study_notes}".strip() if study_notes else slide_annotations_md
-        course_jargon = self.jargon_input.text().strip()
-
-        formatted = AIService.format_for_notebooklm(
-            title=title,
-            date=date_str,
-            duration=duration,
-            model=model,
-            speakers=speaker_count,
-            tags=tags,
-            summary=study_notes,
-            transcript=self._transcription_text,
-            slide_context=self._extracted_slide_text,
-            course_jargon=course_jargon,
-        )
-
-        QApplication.clipboard().setText(formatted)
-        InfoBar.success(
-            title="Copied for NotebookLM",
-            content="Formatted source document (with transcript, slide timeline & annotations) copied to clipboard!",
-            isClosable=True,
-            duration=4000,
-            position=InfoBarPosition.BOTTOM_RIGHT,
-            parent=self,
-        )
-
     # ==========================
     # Slide OCR & Course Jargon
     # ==========================
     def _import_slides_for_ocr(self):
-        """Open file dialog to import PDF, PPTX, or slide images and extract course jargon via OCR."""
+        """Open file dialog to import PDF, PPT, PPTX, Word, or slide images and extract course jargon via OCR."""
+        from document_converter import SUPPORTED_SLIDE_EXTENSIONS
         files, _ = QFileDialog.getOpenFileNames(
             self,
-            "Select Lecture Slides or Screenshots for OCR Jargon Extraction",
+            "Select Lecture Slides, Documents, or Screenshots for OCR Jargon Extraction",
             "",
-            "Slides & Images (*.pdf *.pptx *.png *.jpg *.jpeg *.bmp *.webp *.txt *.md);;"
-            "PDF & PowerPoint (*.pdf *.pptx);;"
+            "All Lecture Slides & Documents (*.pdf *.ppt *.pptx *.doc *.docx *.png *.jpg *.jpeg *.bmp *.webp *.txt *.md);;"
+            "PDF & Office Presentations (*.pdf *.ppt *.pptx *.doc *.docx);;"
             "Images & Screenshots (*.png *.jpg *.jpeg *.bmp *.webp);;"
             "All Files (*.*)",
         )
         if not files:
             return
-        # If user selected a PDF, also load it into the Class Slides & Annotate tab automatically!
-        pdf_files = [f for f in files if f.lower().endswith(".pdf")]
-        if pdf_files:
-            # load_pdf emits pdf_imported_for_jargon for pdf_files[0]
-            self.slide_companion.load_pdf(pdf_files[0])
-            other_files = [f for f in files if f != pdf_files[0]]
+        # If user selected slides or documents (PDF, PPT, Word), load the first deck into the Class Slides tab
+        slide_docs = [f for f in files if Path(f).suffix.lower() in SUPPORTED_SLIDE_EXTENSIONS]
+        if slide_docs:
+            self.slide_companion.load_pdf(slide_docs[0])
+            other_files = [f for f in files if f != slide_docs[0]]
             if other_files:
                 self._run_slide_extraction(other_files)
         else:
@@ -2495,6 +2637,8 @@ class MainWindow(FluentWindow):
                     study_notes=self._study_notes or self.study_notes_text.toPlainText().strip(),
                 )
                 self.recordings_list.refresh()
+                if hasattr(self._tp, "subjects_hub"):
+                    self._tp.subjects_hub.refresh()
             except Exception:
                 pass
 
@@ -2552,11 +2696,12 @@ class MainWindow(FluentWindow):
         self.pct_label.setText("100%")
         self._study_notes = notes_markdown
         self.study_notes_text.setPlainText(notes_markdown)
+        self._update_lecture_chat_context()
 
         # Automatically switch preview to Study Guide view
         self._tp.view_study_btn.click()
 
-        self.status_label.setText("AI Study Guide generated successfully! Ready to push or export.")
+        self.status_label.setText("AI Study Guide generated successfully! Saved locally.")
         InfoBar.success(
             title="Study Guide Ready",
             content="Generated lecture summary, key definitions, and active recall flashcards!",
@@ -2610,6 +2755,54 @@ class MainWindow(FluentWindow):
             apply_windows_taskbar_icon(self, self._icon_path)
 
     def closeEvent(self, event):
+        # Prevent accidental closure without exporting annotated lecture slides
+        if hasattr(self, "slide_companion") and self.slide_companion:
+            try:
+                if self.slide_companion.has_unexported_slides():
+                    # Switch to Class Slides tab so user can review what they have
+                    if hasattr(self, "_tp") and hasattr(self._tp, "pivot"):
+                        self._tp.pivot.setCurrentItem("slidesPage")
+                        self._on_pivot_changed("slidesPage")
+
+                    w = MessageBox(
+                        "Export Annotated Slides Before Exiting?",
+                        "You have class lecture slides and notes that have not been exported as a PDF yet.\n\n"
+                        "Would you like to export your annotated PDF now before closing?",
+                        self,
+                    )
+                    w.yesButton.setText("Export PDF & Exit")
+                    w.cancelButton.setText("Cancel (Stay in App)")
+
+                    discard_btn = PushButton("Discard & Exit", w)
+                    w.buttonLayout.insertWidget(1, discard_btn)
+
+                    user_decision = {"action": "cancel"}
+
+                    def on_discard():
+                        user_decision["action"] = "discard"
+                        w.reject()
+
+                    discard_btn.clicked.connect(on_discard)
+
+                    if w.exec():
+                        user_decision["action"] = "export"
+
+                    if user_decision["action"] == "export":
+                        exported = self.slide_companion._prompt_export_annotated()
+                        if not exported:
+                            # User cancelled file picker or export failed: do NOT close the app
+                            event.ignore()
+                            return
+                    elif user_decision["action"] == "discard":
+                        # User explicitly chose to discard and exit
+                        pass
+                    else:
+                        # User clicked Cancel, pressed Esc, or closed dialog: do NOT close the app
+                        event.ignore()
+                        return
+            except Exception as e:
+                print(f"[Main] Error in closeEvent slide check: {e}")
+
         if hasattr(self, "audio_player") and self.audio_player:
             self.audio_player.stop()
         if hasattr(self, "video_watcher") and self.video_watcher:
@@ -2636,7 +2829,7 @@ def main():
     if sys.platform == "win32":
         try:
             import ctypes
-            myappid = "transcribenotion.app.1.2.0"
+            myappid = "transcribestudio.app.1.4.0"
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
         except Exception:
             pass

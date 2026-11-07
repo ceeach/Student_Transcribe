@@ -910,7 +910,11 @@ class TestTranscriptStorage(unittest.TestCase):
             self.assertTrue(win.export_btn.isEnabled())
             self.assertIn("Hello and welcome.", win.output_text.toPlainText())
             self.assertIn("What is DNA?", win.study_notes_text.toPlainText())
-            self.assertIn("Loaded saved transcript", win.status_label.text())
+            self.assertIn("Loaded archive recording", win.status_label.text())
+
+            # Verify that loaded audio source is immediately ready for re-transcription or first-time transcription
+            validated_path = win._validate_audio_source()
+            self.assertEqual(validated_path, self.audio_path)
             win.close()
 
 
@@ -1303,6 +1307,160 @@ class TestSlideOCRAndJargonExtractor(unittest.TestCase):
             companion.remove_current_deck()
             self.assertEqual(len(companion._decks), 1)
             self.assertEqual(companion.current_deck.name, "Case_Study.pdf")
+
+            companion.close()
+
+
+class TestSlideMatcher(unittest.TestCase):
+    def setUp(self):
+        from slide_matcher import SlideMatcher
+        self.texts = [
+            "Introduction to Neural Networks and Perceptrons. Linear algebra basics and vectors.",
+            "Backpropagation and Gradient Descent. Loss functions, chain rule, and partial derivatives.",
+            "Convolutional Neural Networks (CNN). Kernel filters, pooling layers, feature maps for computer vision.",
+            "Recurrent Neural Networks (RNN) and Transformers. Attention mechanisms, self-attention, and sequence modeling.",
+        ]
+        self.titles = [
+            "1. Intro to Neural Networks",
+            "2. Backpropagation & Optimization",
+            "3. Convolutional Networks (CNN)",
+            "4. Transformers & Attention",
+        ]
+        self.matcher = SlideMatcher(self.texts, self.titles)
+
+    def test_slide_matcher_keyword_scoring(self):
+        speech = "Today we will explore kernel filters and pooling layers in convolutional neural networks."
+        matched_idx, conf, kws = self.matcher.match_speech(speech, current_slide_idx=0, min_confidence=0.25)
+        self.assertEqual(matched_idx, 2)
+        self.assertGreater(conf, 0.25)
+        self.assertTrue(any(kw in ["convolutional", "kernel", "filters", "pooling"] for kw in kws))
+
+    def test_slide_matcher_continuity_bias(self):
+        speech = "As we optimize the loss function with gradient descent"
+        matched_idx, conf, _ = self.matcher.match_speech(speech, current_slide_idx=1, min_confidence=0.2)
+        self.assertEqual(matched_idx, 1)
+
+    def test_align_transcript_timeline(self):
+        segments = [
+            {"start": 0.0, "end": 15.0, "text": "Welcome to neural networks and perceptrons overview."},
+            {"start": 16.0, "end": 35.0, "text": "Let us discuss vectors and linear algebra."},
+            {"start": 40.0, "end": 70.0, "text": "Now moving to backpropagation and gradient descent chain rule."},
+            {"start": 75.0, "end": 105.0, "text": "Next we examine convolutional neural networks and kernel filters."},
+        ]
+        timeline = self.matcher.align_transcript_timeline(segments, window_seconds=20.0)
+        self.assertGreaterEqual(len(timeline), 2)
+        self.assertEqual(timeline[0]["slide_idx"], 0)
+        slide_indices = [entry["slide_idx"] for entry in timeline]
+        self.assertIn(1, slide_indices)
+
+
+class TestNotebookLMSync(unittest.TestCase):
+    def test_sanitize_filename(self):
+        from notebooklm_sync import sanitize_filename
+        self.assertEqual(sanitize_filename("Lecture 1: Intro / What is AI? *"), "Lecture_1_Intro_What_is_AI")
+
+    def test_sync_to_local_drive_folder(self):
+        import tempfile
+        from pathlib import Path
+        from notebooklm_sync import sync_to_notebooklm
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            success, msg, actions = sync_to_notebooklm(
+                title="Linear Algebra 101",
+                transcript_text="Today we covered matrices and eigenvalues.",
+                study_notes="### Summary\nEigenvalues and eigenvectors are fundamental.",
+                drive_folder=tmp_dir,
+            )
+            self.assertTrue(success)
+            self.assertIn("Saved file to Google Drive", msg)
+            md_files = list(Path(tmp_dir).glob("*.md"))
+            self.assertEqual(len(md_files), 1)
+            content = md_files[0].read_text(encoding="utf-8")
+            self.assertIn("Linear Algebra 101", content)
+            self.assertIn("eigenvalues", content.lower())
+
+    def test_sync_to_webhook(self):
+        from unittest.mock import MagicMock, patch
+        from notebooklm_sync import sync_to_notebooklm
+
+        mock_resp = MagicMock()
+        mock_resp.getcode.return_value = 200
+        mock_resp.__enter__.return_value = mock_resp
+
+        with patch("urllib.request.urlopen", return_value=mock_resp) as mock_urlopen:
+            success, msg, actions = sync_to_notebooklm(
+                title="Biology Lecture",
+                transcript_text="Mitochondria is the powerhouse of the cell.",
+                webhook_url="https://hooks.zapier.com/hooks/catch/12345/abcde",
+            )
+            self.assertTrue(success)
+            self.assertIn("Dispatched to Webhook", msg)
+            mock_urlopen.assert_called_once()
+            req = mock_urlopen.call_args[0][0]
+            self.assertEqual(req.full_url, "https://hooks.zapier.com/hooks/catch/12345/abcde")
+            self.assertEqual(req.get_method(), "POST")
+
+    def test_test_notebooklm_sync_helper(self):
+        import tempfile
+        from unittest.mock import MagicMock, patch
+        from notebooklm_sync import test_notebooklm_sync
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            mock_resp = MagicMock()
+            mock_resp.getcode.return_value = 200
+            mock_resp.__enter__.return_value = mock_resp
+
+            with patch("urllib.request.urlopen", return_value=mock_resp):
+                success, msg = test_notebooklm_sync(
+                    drive_folder=tmp_dir,
+                    webhook_url="https://example.com/webhook",
+                )
+                self.assertTrue(success)
+                self.assertIn("folder is writable", msg)
+                self.assertIn("Webhook responded", msg)
+
+    def test_slide_companion_auto_advance_and_suggestion(self):
+        import tempfile
+        from pathlib import Path
+        from PyQt6.QtWidgets import QApplication
+        import pymupdf as fitz
+        from ui.slide_viewer import SlideCompanionWidget
+
+        app = QApplication.instance() or QApplication(["test"])
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            pdf_path = Path(tmp_dir) / "Quantum_Physics.pdf"
+            doc = fitz.open()
+            p1 = doc.new_page(width=600, height=400)
+            p1.insert_text((50, 60), "Slide 1: Classical Mechanics Overview")
+            p2 = doc.new_page(width=600, height=400)
+            p2.insert_text((50, 60), "Slide 2: Quantum Superposition and Schrodinger's Cat")
+            doc.save(str(pdf_path))
+            doc.close()
+
+            companion = SlideCompanionWidget(time_provider=lambda: 12.0)
+            companion.load_pdf(str(pdf_path))
+            self.assertEqual(companion.current_slide_idx, 0)
+
+            # In suggestion mode (default, auto_advance_switch is unchecked):
+            companion.auto_advance_switch.setChecked(False)
+            companion.process_spoken_text("Now let's examine quantum superposition and Schrodinger's cat", 12.0)
+
+            # Suggestion card should be visible with target slide 1
+            self.assertFalse(companion.suggestion_card.isHidden())
+            self.assertIn("Slide 2", companion.suggestion_label.text())
+
+            # Clicking 'Jump & Mark Here' accepts the suggestion
+            companion.accept_suggestion_btn.click()
+            self.assertEqual(companion.current_slide_idx, 1)
+            self.assertTrue(companion.suggestion_card.isHidden())
+
+            # Test full auto-advance mode
+            companion.current_deck.active_idx = 0
+            companion.auto_advance_switch.setChecked(True)
+            companion._last_match_time = 0.0  # reset debounce
+            companion.process_spoken_text("Quantum superposition Schrodinger wave function", 25.0)
+            self.assertEqual(companion.current_slide_idx, 1)
 
             companion.close()
 

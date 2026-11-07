@@ -206,6 +206,7 @@ class AudioRecorder(QObject):
     recording_finished = pyqtSignal(str)       # Emits output wav file path
     error_occurred = pyqtSignal(str)
     source_changed = pyqtSignal(str)           # Emits new active audio source ("mic", "system", "both")
+    audio_chunk_recorded = pyqtSignal(np.ndarray, float)  # Emits (float32 chunk array, start_time_sec)
 
     def __init__(
         self,
@@ -310,6 +311,7 @@ class AudioRecorder(QObject):
         """Worker thread converting, mixing, and writing audio to 16kHz mono WAV."""
         buf_mic = np.zeros(0, dtype=np.float32)
         buf_loop = np.zeros(0, dtype=np.float32)
+        total_samples_written: int = 0
 
         try:
             with sf.SoundFile(
@@ -351,7 +353,10 @@ class AudioRecorder(QObject):
                         if len(buf_mic) > 0:
                             chunk = buf_mic
                             buf_mic = np.zeros(0, dtype=np.float32)
+                            chunk_ts = total_samples_written / float(self.sample_rate)
+                            total_samples_written += len(chunk)
                             sound_file.write(chunk)
+                            self.audio_chunk_recorded.emit(chunk, chunk_ts)
                             rms = float(np.sqrt(np.mean(chunk**2))) if len(chunk) > 0 else 0.0
                             self.level_changed.emit(float(np.clip(rms * 5.0, 0.0, 1.0)))
 
@@ -359,7 +364,10 @@ class AudioRecorder(QObject):
                         if len(buf_loop) > 0:
                             chunk = buf_loop
                             buf_loop = np.zeros(0, dtype=np.float32)
+                            chunk_ts = total_samples_written / float(self.sample_rate)
+                            total_samples_written += len(chunk)
                             sound_file.write(chunk)
+                            self.audio_chunk_recorded.emit(chunk, chunk_ts)
                             rms = float(np.sqrt(np.mean(chunk**2))) if len(chunk) > 0 else 0.0
                             self.level_changed.emit(float(np.clip(rms * 5.0, 0.0, 1.0)))
 
@@ -369,7 +377,10 @@ class AudioRecorder(QObject):
                             chunk_m = buf_mic[:n]
                             chunk_l = buf_loop[:n]
                             mixed = np.clip((chunk_m + chunk_l) * 0.7, -1.0, 1.0).astype(np.float32)
+                            chunk_ts = total_samples_written / float(self.sample_rate)
+                            total_samples_written += len(mixed)
                             sound_file.write(mixed)
+                            self.audio_chunk_recorded.emit(mixed, chunk_ts)
                             rms = float(np.sqrt(np.mean(mixed**2)))
                             self.level_changed.emit(float(np.clip(rms * 5.0, 0.0, 1.0)))
                             buf_mic = buf_mic[n:]
@@ -378,14 +389,20 @@ class AudioRecorder(QObject):
                             # Loopback queue starved or quiet: write mic with silence padding
                             chunk_m = buf_mic
                             buf_mic = np.zeros(0, dtype=np.float32)
+                            chunk_ts = total_samples_written / float(self.sample_rate)
+                            total_samples_written += len(chunk_m)
                             sound_file.write(chunk_m * 0.7)
+                            self.audio_chunk_recorded.emit(chunk_m, chunk_ts)
                             rms = float(np.sqrt(np.mean(chunk_m**2)))
                             self.level_changed.emit(float(np.clip(rms * 5.0, 0.0, 1.0)))
                         elif len(buf_loop) > 16000 * 0.4:
                             # Mic queue starved: write system with silence padding
                             chunk_l = buf_loop
                             buf_loop = np.zeros(0, dtype=np.float32)
+                            chunk_ts = total_samples_written / float(self.sample_rate)
+                            total_samples_written += len(chunk_l)
                             sound_file.write(chunk_l * 0.7)
+                            self.audio_chunk_recorded.emit(chunk_l, chunk_ts)
                             rms = float(np.sqrt(np.mean(chunk_l**2)))
                             self.level_changed.emit(float(np.clip(rms * 5.0, 0.0, 1.0)))
 

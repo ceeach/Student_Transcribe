@@ -37,6 +37,16 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "num_speakers": -1,  # -1 for auto-detect, or integer count (e.g. 2, 3, 4)
     "diarization_threshold": 0.5,  # clustering threshold (0.1 to 0.9)
     "beam_size": 1,  # 1 for fast greedy decoding (~2.5x faster), 5 for exhaustive search
+    "whisper_language": "en",  # Default forced transcription language ("en", "auto", "de", "fr", "es", etc.)
+    "auto_advance_slides": False,  # Suggestion mode by default; True for automatic slide transitions
+    "notebooklm_drive_folder": "",  # Local Google Drive or synced cloud folder for NotebookLM
+    "notebooklm_webhook_url": "",  # Optional HTTP POST webhook (Make/Zapier/custom)
+    "auto_sync_notebooklm": False,  # Automatically sync lecture to NotebookLM on transcription completion
+    "ai_provider": "gemini",
+    "gemini_api_key": "",
+    "gemini_model": "Gemini 3.5 Transcribe Live",
+    "gemini_summary_priority": "gemini-3.8-flash, gemini-3.6-flash, gemini-3.5-flash, gemini-2.5-flash, gemini-flash-latest",
+    "gemini_live_enabled": True,  # Automatically run Gemini Live when recording while connected to internet
 }
 
 

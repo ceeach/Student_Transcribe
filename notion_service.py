@@ -467,6 +467,14 @@ class NotionService:
                 meta_lines.append(f"⏱ Duration: {metadata['duration']}")
             if "model" in metadata:
                 meta_lines.append(f"🎙 Whisper Model: {metadata['model']}")
+            if metadata.get("subject"):
+                meta_lines.append(f"📚 Subject: {metadata['subject']}")
+            if metadata.get("session_type"):
+                meta_lines.append(f"🏷 Session Type: {metadata['session_type']}")
+            if metadata.get("modules"):
+                mods = metadata["modules"]
+                mod_str = ", ".join(mods) if isinstance(mods, list) else str(mods)
+                meta_lines.append(f"📑 Modules: {mod_str}")
             distinct_speakers = list(dict.fromkeys(s["speaker"] for s in segments if s.get("speaker")))
             if distinct_speakers:
                 meta_lines.append(f"👥 Speakers ({len(distinct_speakers)}): {', '.join(distinct_speakers)}")
@@ -695,6 +703,14 @@ class NotionService:
                 meta_lines.append(f"⏱ Duration: {metadata['duration']}")
             if "model" in metadata:
                 meta_lines.append(f"🎙 Whisper Model: {metadata['model']}")
+            if metadata.get("subject"):
+                meta_lines.append(f"📚 Subject: {metadata['subject']}")
+            if metadata.get("session_type"):
+                meta_lines.append(f"🏷 Session Type: {metadata['session_type']}")
+            if metadata.get("modules"):
+                mods = metadata["modules"]
+                mod_str = ", ".join(mods) if isinstance(mods, list) else str(mods)
+                meta_lines.append(f"📑 Modules: {mod_str}")
             distinct_speakers = list(dict.fromkeys(s["speaker"] for s in segments if s.get("speaker")))
             if distinct_speakers:
                 meta_lines.append(f"👥 Speakers ({len(distinct_speakers)}): {', '.join(distinct_speakers)}")

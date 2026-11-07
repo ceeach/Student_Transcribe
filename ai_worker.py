@@ -38,12 +38,15 @@ class AIStudyNotesWorker(QThread):
                         "Google Gemini API key not found.\n"
                         "Please go to Settings > AI Study Assistant and paste your Gemini API key."
                     )
-                model_name = self.model or config_manager.get("gemini_model", "gemini-1.5-flash")
-                self.status_changed.emit(f"Synthesizing study guide with Google Gemini ({model_name})...")
+                model_name = self.model or config_manager.get(
+                    "gemini_summary_priority",
+                    "gemini-3.8-flash, gemini-3.6-flash, gemini-3.5-flash, gemini-2.5-flash, gemini-flash-latest",
+                )
                 notes = AIService.generate_study_notes_gemini(
                     transcript_text=self.transcript_text,
                     api_key=api_key,
                     model=model_name,
+                    status_callback=self.status_changed.emit,
                 )
             elif self.provider == "ollama":
                 host = config_manager.get("ollama_host", "http://localhost:11434")

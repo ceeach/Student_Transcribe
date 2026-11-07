@@ -47,6 +47,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "gemini_model": "Gemini 3.5 Transcribe Live",
     "gemini_summary_priority": "gemini-3.8-flash, gemini-3.6-flash, gemini-3.5-flash, gemini-2.5-flash, gemini-flash-latest",
     "gemini_live_enabled": True,  # Automatically run Gemini Live when recording while connected to internet
+    "auto_check_updates": True,   # Automatically check for updates on application launch
 }
 
 

@@ -57,6 +57,7 @@ all_hiddenimports = [
     'ui.lecture_chat',
     'ui.slide_viewer',
     'transcript_storage',
+    'updater',
     'ai_service',
     'ai_worker',
     'slide_extractor',

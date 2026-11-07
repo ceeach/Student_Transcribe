@@ -1,0 +1,32 @@
+name: Feature Request
+description: Suggest an idea or enhancement for Student Transcribe
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Have an idea to make studying, lecture recording, or slide annotation even better? We'd love to hear it!
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Is your feature related to a problem?
+      description: A clear description of what the problem is.
+      placeholder: I'm always frustrated when...
+    validations:
+      required: false
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution / Ideal Workflow
+      description: Describe what you would like to happen and how you envision using it.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternative Solutions Considered
+      description: Any alternative options or workarounds you've thought of.

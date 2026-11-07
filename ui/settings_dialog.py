@@ -15,9 +15,14 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+import sys
+import webbrowser
+
 from qfluentwidgets import (
     BodyLabel,
+    CaptionLabel,
     CardWidget,
+    CheckBox,
     ComboBox,
     FluentIcon as FIF,
     InfoBar,
@@ -30,6 +35,7 @@ from qfluentwidgets import (
     SubtitleLabel,
     SwitchButton,
     TitleLabel,
+    TransparentPushButton,
 )
 
 from audio_recorder import get_audio_input_devices, get_audio_loopback_devices
@@ -37,6 +43,7 @@ from config_manager import config_manager
 from diarization import is_diarization_available
 from transcriber import is_cuda_available
 from ui.benchmark_dialog import BenchmarkDialog
+from updater import APP_VERSION, CheckUpdateWorker, UpdateDialog, open_bug_report
 
 
 class SettingsDialog(QDialog):
@@ -410,6 +417,46 @@ class SettingsDialog(QDialog):
 
         main_layout.addWidget(logs_card)
 
+        # 9. About, Updates & Community Card
+        about_card = CardWidget(self)
+        about_layout = QVBoxLayout(about_card)
+        about_layout.setSpacing(12)
+        about_layout.setContentsMargins(16, 16, 16, 16)
+        about_layout.addWidget(SubtitleLabel(f"About Student Transcribe (v{APP_VERSION})", self))
+
+        about_desc = BodyLabel(
+            "Student Transcribe is an open-source academic lecture recording, transcription, and study companion.",
+            self,
+        )
+        about_desc.setWordWrap(True)
+        about_layout.addWidget(about_desc)
+
+        self.auto_check_updates_cb = CheckBox("Automatically check for updates on application launch", self)
+        about_layout.addWidget(self.auto_check_updates_cb)
+
+        updates_row = QHBoxLayout()
+        updates_row.setSpacing(10)
+        self.check_updates_btn = PrimaryPushButton("⚡ Check for Updates...", self)
+        self.check_updates_btn.setIcon(FIF.SYNC)
+        self.check_updates_btn.clicked.connect(self._check_for_updates_manually)
+        updates_row.addWidget(self.check_updates_btn)
+
+        self.report_bug_btn = PushButton("🐛 Report a Bug / Request Feature...", self)
+        self.report_bug_btn.setIcon(FIF.FEEDBACK)
+        self.report_bug_btn.clicked.connect(open_bug_report)
+        updates_row.addWidget(self.report_bug_btn)
+
+        self.github_btn = PushButton("⭐ Star on GitHub", self)
+        self.github_btn.setIcon(FIF.SHARE)
+        self.github_btn.clicked.connect(lambda: webbrowser.open("https://github.com/ceeach/Student_Transcribe"))
+        updates_row.addWidget(self.github_btn)
+        about_layout.addLayout(updates_row)
+
+        self.update_status_label = CaptionLabel("", self)
+        about_layout.addWidget(self.update_status_label)
+
+        main_layout.addWidget(about_card)
+
         # Finish scroll setup
         scroll.setWidget(scroll_content)
         root_layout.addWidget(scroll, 1)
@@ -417,11 +464,10 @@ class SettingsDialog(QDialog):
         # Dialog Buttons (fixed at the bottom)
         button_layout = QHBoxLayout()
 
-        from logger import open_log_file
-        self.logs_btn = PushButton("📋 View Logs", self)
-        self.logs_btn.setToolTip("Open diagnostic log file for error inspection")
-        self.logs_btn.clicked.connect(open_log_file)
-        button_layout.addWidget(self.logs_btn)
+        self.report_bug_bottom_btn = TransparentPushButton("🐛 Report a Bug", self)
+        self.report_bug_bottom_btn.setToolTip("Open GitHub to report a problem or suggest a feature")
+        self.report_bug_bottom_btn.clicked.connect(open_bug_report)
+        button_layout.addWidget(self.report_bug_bottom_btn)
 
         button_layout.addStretch(1)
         
@@ -471,6 +517,9 @@ class SettingsDialog(QDialog):
             if self.language_combo.itemData(i) == saved_lang:
                 self.language_combo.setCurrentIndex(i)
                 break
+
+        # Auto updates
+        self.auto_check_updates_cb.setChecked(config_manager.get("auto_check_updates", True))
 
         self.tags_input.setText(config_manager.get("default_tags", "Meeting, Audio"))
         self.video_folder_input.setText(config_manager.get("video_watch_folder", ""))
@@ -643,6 +692,29 @@ class SettingsDialog(QDialog):
         else:
             subprocess.run(["xdg-open", str(LOGS_DIR)])
 
+    def _check_for_updates_manually(self):
+        self.check_updates_btn.setEnabled(False)
+        self.update_status_label.setText("Checking GitHub for updates...")
+        self._update_worker = CheckUpdateWorker(parent=self)
+        self._update_worker.update_available.connect(self._on_update_available)
+        self._update_worker.up_to_date.connect(self._on_up_to_date)
+        self._update_worker.error_occurred.connect(self._on_update_error)
+        self._update_worker.start()
+
+    def _on_update_available(self, release_info: dict):
+        self.check_updates_btn.setEnabled(True)
+        self.update_status_label.setText(f"🚀 New version available: {release_info['tag_name']}!")
+        dlg = UpdateDialog(release_info, self)
+        dlg.exec()
+
+    def _on_up_to_date(self):
+        self.check_updates_btn.setEnabled(True)
+        self.update_status_label.setText(f"✅ You are running the latest version (v{APP_VERSION}).")
+
+    def _on_update_error(self, err_msg: str):
+        self.check_updates_btn.setEnabled(True)
+        self.update_status_label.setText(f"Could not check for updates ({err_msg}).")
+
     def _save_and_close(self):
         selected_device = "cuda" if "cuda" in self.device_combo.currentText().lower() else "cpu"
 
@@ -661,6 +733,7 @@ class SettingsDialog(QDialog):
             "num_speakers": self.num_speakers_combo.currentData(),
             "beam_size": self.beam_combo.currentData() or 1,
             "whisper_language": self.language_combo.currentData() or "en",
+            "auto_check_updates": self.auto_check_updates_cb.isChecked(),
             "ai_provider": self.ai_provider_combo.currentData() or "gemini",
             "gemini_api_key": self.gemini_key_input.text().strip(),
             "gemini_model": self.gemini_model_combo.currentText(),

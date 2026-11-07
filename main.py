@@ -892,6 +892,10 @@ class MainWindow(FluentWindow):
         self._init_navigation()
         self._connect_signals()
 
+        # Check for updates in the background if enabled
+        if config_manager.get("auto_check_updates", True):
+            QTimer.singleShot(3500, self._check_updates_silently)
+
         # Initial state
         self.status_label.setText("Ready to record or import audio.")
 
@@ -911,15 +915,23 @@ class MainWindow(FluentWindow):
         self.titleBar.titleLabel.setText("")
         self.titleBar.iconLabel.hide()
 
+        # Top Report Bug button
+        from updater import open_bug_report
+        self.top_report_btn = TransparentToolButton(FIF.FEEDBACK, self.titleBar)
+        self.top_report_btn.setFixedSize(36, 32)
+        self.top_report_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.top_report_btn.setToolTip("Report a Bug or Suggest Feature on GitHub")
+        self.top_report_btn.clicked.connect(open_bug_report)
+
         # Top Settings button
         self.top_settings_btn = TransparentPushButton("Settings", self.titleBar)
         self.top_settings_btn.setIcon(FIF.SETTING)
         self.top_settings_btn.setFixedHeight(30)
         self.top_settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.top_settings_btn.setToolTip("Settings & Application Logs")
+        self.top_settings_btn.setToolTip("Settings, Updates & Diagnostics")
         self.top_settings_btn.clicked.connect(self._open_settings)
 
-        # Rebuild titleBar.hBoxLayout with centered pivot, top settings button, and no app icon
+        # Rebuild titleBar.hBoxLayout with centered pivot, report button, settings button, and no app icon
         while self.titleBar.hBoxLayout.count() > 0:
             self.titleBar.hBoxLayout.takeAt(0)
 
@@ -927,6 +939,8 @@ class MainWindow(FluentWindow):
         self.titleBar.hBoxLayout.addStretch(1)
         self.titleBar.hBoxLayout.addWidget(self.transcribe_page.pivot, 0, Qt.AlignmentFlag.AlignCenter)
         self.titleBar.hBoxLayout.addStretch(1)
+        self.titleBar.hBoxLayout.addWidget(self.top_report_btn, 0, Qt.AlignmentFlag.AlignVCenter)
+        self.titleBar.hBoxLayout.addSpacing(4)
         self.titleBar.hBoxLayout.addWidget(self.top_settings_btn, 0, Qt.AlignmentFlag.AlignVCenter)
         self.titleBar.hBoxLayout.addSpacing(8)
         self.titleBar.hBoxLayout.addLayout(self.titleBar.vBoxLayout, 0)
@@ -1822,6 +1836,24 @@ class MainWindow(FluentWindow):
     def _open_logs(self):
         """Open the application diagnostics log file in default viewer."""
         open_log_file()
+
+    def _check_updates_silently(self):
+        from updater import CheckUpdateWorker
+        self._startup_update_worker = CheckUpdateWorker(parent=self)
+        self._startup_update_worker.update_available.connect(self._on_startup_update_available)
+        self._startup_update_worker.start()
+
+    def _on_startup_update_available(self, release_info: dict):
+        from updater import UpdateDialog
+        tag = release_info.get("tag_name", "New release")
+        bar = InfoBar.info(
+            title=f"🚀 Update Available ({tag})",
+            content=f"Student Transcribe {tag} is available! Click Settings → 'Check for Updates' to install.",
+            isClosable=True,
+            duration=12000,
+            position=InfoBarPosition.TOP,
+            parent=self,
+        )
 
     def _open_benchmark_dialog(self):
         from ui.benchmark_dialog import BenchmarkDialog

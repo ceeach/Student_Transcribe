@@ -48,6 +48,7 @@ from qfluentwidgets import (
     TitleLabel,
     ToolButton,
     TransparentPushButton,
+    TransparentToolButton,
     isDarkTheme,
     setTheme,
     setThemeColor,

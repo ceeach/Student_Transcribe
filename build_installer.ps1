@@ -1,10 +1,10 @@
-# NotionTranscribe - Build Executable & Windows Installer
+# Student Transcribe - Build Executable & Windows Installer
 # Automated PowerShell Build Script
 
 $ErrorActionPreference = "Stop"
 
 Write-Host "==========================================================" -ForegroundColor Cyan
-Write-Host " Building NotionTranscribe Desktop Executable & Installer " -ForegroundColor Cyan
+Write-Host " Building Student Transcribe Desktop Executable & Installer " -ForegroundColor Cyan
 Write-Host "==========================================================" -ForegroundColor Cyan
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -24,8 +24,8 @@ Write-Host ""
 Write-Host "[2/4] Bundling application with PyInstaller..." -ForegroundColor Yellow
 python -m PyInstaller notion_transcribe.spec --clean --noconfirm
 
-if (-not (Test-Path "dist/Transcribe Notion/Transcribe Notion.exe")) {
-    Write-Error "PyInstaller build failed: Transcribe Notion.exe not found in dist/Transcribe Notion/"
+if (-not (Test-Path "dist/Student Transcribe/Student Transcribe.exe")) {
+    Write-Error "PyInstaller build failed: Student Transcribe.exe not found in dist/Student Transcribe/"
     exit 1
 }
 Write-Host "[OK] PyInstaller compilation succeeded!" -ForegroundColor Green
@@ -52,7 +52,7 @@ foreach ($path in $IsccPaths) {
 
 if (-not $IsccExe) {
     Write-Host "Inno Setup compiler (ISCC.exe) not found in standard paths." -ForegroundColor Red
-    Write-Host "Standalone portable folder available at: dist\Transcribe Notion\" -ForegroundColor Cyan
+    Write-Host "Standalone portable folder available at: dist\Student Transcribe\" -ForegroundColor Cyan
     exit 0
 }
 
@@ -64,14 +64,14 @@ Write-Host "[4/4] Compiling Windows Setup Installer (.exe)..." -ForegroundColor 
 New-Item -ItemType Directory -Force -Path "output" | Out-Null
 & $IsccExe "installer.iss"
 
-$InstallerPath = "output\TranscribeStudio-Setup-v1.4.0.exe"
+$InstallerPath = "output\StudentTranscribe-Setup-v1.4.1.exe"
 if (Test-Path $InstallerPath) {
     $SizeMB = [math]::Round((Get-Item $InstallerPath).Length / 1MB, 2)
     Write-Host ""
     Write-Host "==========================================================" -ForegroundColor Green
     Write-Host " BUILD COMPLETED SUCCESSFULLY! " -ForegroundColor Green
     Write-Host " Installer generated: $InstallerPath ($SizeMB MB)" -ForegroundColor Green
-    Write-Host " Standalone folder:   dist\Transcribe Notion\" -ForegroundColor Green
+    Write-Host " Standalone folder:   dist\Student Transcribe\" -ForegroundColor Green
     Write-Host "==========================================================" -ForegroundColor Green
 } else {
     Write-Warning "Setup executable was not created. Please check Inno Setup logs."

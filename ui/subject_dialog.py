@@ -1,4 +1,4 @@
-"""Academic Subject & Course Management Dialog for Transcribe Studio."""
+"""Academic Subject & Course Management Dialog for Student Transcribe."""
 
 from typing import Optional, List
 from PyQt6.QtCore import Qt, pyqtSignal

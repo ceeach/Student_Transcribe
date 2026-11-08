@@ -1,4 +1,4 @@
-"""Semantic Auto-Slide Matcher & Lecture Timeline Alignment for Transcribe Notion.
+"""Semantic Auto-Slide Matcher & Lecture Timeline Alignment for Student Transcribe.
 
 Matches spoken lecture text against imported PDF slide decks using:
 - Technical jargon & keyword extraction with stopword filtering

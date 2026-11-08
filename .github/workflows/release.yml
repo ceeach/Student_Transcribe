@@ -49,7 +49,7 @@ jobs:
 
       - name: Archive Standalone Portable Folder
         run: |
-          Compress-Archive -Path "dist\Transcribe Notion\*" -DestinationPath "output\StudentTranscribe-Portable-Windows.zip" -Force
+          Compress-Archive -Path "dist\Student Transcribe\*" -DestinationPath "output\StudentTranscribe-Portable-Windows.zip" -Force
 
       - name: Create GitHub Release and Upload Assets
         uses: softprops/action-gh-release@v2

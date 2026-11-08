@@ -1,10 +1,10 @@
 ; Script generated for Inno Setup Compiler
-; NotionTranscribe Windows Installer
+; Student Transcribe Windows Installer
 
-#define MyAppName "Transcribe Notion"
+#define MyAppName "Student Transcribe"
 #define MyAppVersion "1.4.1"
-#define MyAppPublisher "Transcribe Notion Team"
-#define MyAppExeName "Transcribe Notion.exe"
+#define MyAppPublisher "Student Transcribe Team"
+#define MyAppExeName "Student Transcribe.exe"
 
 [Setup]
 AppId={{D37E6F4A-483B-49A1-979F-0A86532B41B7}
@@ -16,7 +16,7 @@ UninstallDisplayIcon={app}\{#MyAppExeName}
 DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
 OutputDir=output
-OutputBaseFilename=TranscribeStudio-Setup-v1.4.1
+OutputBaseFilename=StudentTranscribe-Setup-v1.4.1
 SetupIconFile=assets\icon.ico
 SolidCompression=yes
 Compression=lzma2/max
@@ -32,7 +32,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-Source: "dist\Transcribe Notion\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "dist\Student Transcribe\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppExeName}"

@@ -1,4 +1,4 @@
-"""In-App Lecture Q&A and Chat Assistant for Transcribe Studio (Phase 2).
+"""In-App Lecture Q&A and Chat Assistant for Student Transcribe (Phase 2).
 
 Provides an interactive 'Ask Lecture' chat grounded in the current lecture's
 transcript, study notes, and syllabus metadata using Gemini or Ollama.
@@ -77,7 +77,7 @@ class LectureChatWorker(QThread):
 
             # Build grounded conversational prompt
             prompt = (
-                f"You are an expert academic tutor and interactive lecture assistant for Transcribe Studio.\n"
+                f"You are an expert academic tutor and interactive lecture assistant for Student Transcribe.\n"
                 f"Your task is to answer the student's question accurately, clearly, and thoroughly based on the provided lecture transcript and study notes.\n\n"
                 f"GUIDELINES:\n"
                 f"1. Ground your answer in the lecture transcript and study guide below.\n"
@@ -133,7 +133,7 @@ class LectureChatWorker(QThread):
 
 
 class LectureChatWidget(QWidget):
-    """Interactive Chat UI embedded in the Transcribe Studio interface."""
+    """Interactive Chat UI embedded in the Student Transcribe interface."""
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)

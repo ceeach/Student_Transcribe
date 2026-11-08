@@ -94,7 +94,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='Transcribe Notion',
+    name='Student Transcribe',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -116,5 +116,5 @@ coll = COLLECT(
     strip=False,
     upx=False,
     upx_exclude=[],
-    name='Transcribe Notion',
+    name='Student Transcribe',
 )

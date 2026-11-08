@@ -1,4 +1,4 @@
-"""Slide & Document Context Extractor for Transcribe Notion.
+"""Slide & Document Context Extractor for Student Transcribe.
 
 Extracts text and course jargon/vocabulary from lecture slides and documents:
 - PDF files (.pdf): Digital text via PyMuPDF / pypdf + automatic Windows OCR fallback for scanned/image slides

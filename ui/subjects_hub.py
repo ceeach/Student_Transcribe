@@ -1,4 +1,4 @@
-"""Subjects Hub Widget for Transcribe Studio.
+"""Subjects Hub Widget for Student Transcribe.
 
 Provides a dedicated full-screen Course and Subject Management Hub where
 students can view all recordings, videos, extracted transcripts, and AI summaries

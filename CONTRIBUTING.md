@@ -39,7 +39,7 @@ To bundle the application into a standalone portable folder and Inno Setup insta
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\build_installer.ps1
 ```
-The compiled installer will be in `output/` and the standalone distribution in `dist/Transcribe Notion/`.
+The compiled installer will be in `output/` and the standalone distribution in `dist/Student Transcribe/`.
 
 ---
 

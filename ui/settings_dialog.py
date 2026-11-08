@@ -1,4 +1,4 @@
-"""Settings Dialog for NotionTranscribe.
+"""Settings Dialog for Student Transcribe.
 
 Configures Notion API secret, Database ID, Whisper model size,
 compute device (CPU/CUDA), and tests API connection.
@@ -53,7 +53,7 @@ class SettingsDialog(QDialog):
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
-        self.setWindowTitle("Transcribe Studio Settings")
+        self.setWindowTitle("Student Transcribe Settings")
         self.resize(640, 720)
         self.setModal(True)
 

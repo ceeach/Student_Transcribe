@@ -823,11 +823,11 @@ class TranscribeInterface(QWidget):
 # Main Window - FluentWindow with sidebar navigation
 # ============================================================
 class MainWindow(FluentWindow):
-    """Main Application Window for Transcribe Studio with WinUI3 Fluent Design."""
+    """Main Application Window for Student Transcribe with WinUI3 Fluent Design."""
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Transcribe Studio v1.4.0")
+        self.setWindowTitle("Student Transcribe v1.4.1")
         self.resize(960, 820)
         self.setMinimumSize(740, 480)
 
@@ -2861,7 +2861,7 @@ def main():
     if sys.platform == "win32":
         try:
             import ctypes
-            myappid = "transcribestudio.app.1.4.0"
+            myappid = "studenttranscribe.app.1.4.1"
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
         except Exception:
             pass

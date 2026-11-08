@@ -1,4 +1,4 @@
-"""Interactive Class Slide Companion & Rich PDF Annotation Editor for Transcribe Notion.
+"""Interactive Class Slide Companion & Rich PDF Annotation Editor for Student Transcribe.
 
 Allows importing a class PDF during or before a lecture:
 - Browse/preview any slide freely without changing the active lecture slide

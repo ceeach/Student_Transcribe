@@ -1,4 +1,4 @@
-"""NotebookLM 1-Click Sync & Webhook Integration for Transcribe Notion.
+"""NotebookLM 1-Click Sync & Webhook Integration for Student Transcribe.
 
 Syncs lecture transcripts, AI study guides, and slide timelines to:
 1. Local Google Drive folder (for instant automatic ingestion in Google NotebookLM)
@@ -108,7 +108,7 @@ def sync_to_notebooklm(
                 "transcript": transcript_text,
                 "slide_timeline": slide_timeline or [],
                 "jargon_terms": jargon_terms or [],
-                "source": "Transcribe Notion v1.2",
+                "source": "Student Transcribe v1.4.1",
             }
 
             req_data = json.dumps(payload).encode("utf-8")
@@ -180,7 +180,7 @@ def test_notebooklm_sync(
             results.append("Webhook URL must start with http:// or https://")
         else:
             try:
-                test_payload = json.dumps({"test": True, "ping": "Transcribe Notion"}).encode("utf-8")
+                test_payload = json.dumps({"test": True, "ping": "Student Transcribe"}).encode("utf-8")
                 req = urllib.request.Request(
                     clean_url,
                     data=test_payload,

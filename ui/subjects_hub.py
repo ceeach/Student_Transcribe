@@ -1211,6 +1211,9 @@ class SubjectsHubWidget(QWidget):
         dlg.subjects_changed.connect(self.refresh)
         dlg.exec()
         self.refresh()
+        target = getattr(dlg, "last_saved_subject", None)
+        if target:
+            self._select_subject_in_list(target)
 
     def _open_subject_manager(self):
         from ui.subject_dialog import SubjectManagementDialog
@@ -1218,6 +1221,9 @@ class SubjectsHubWidget(QWidget):
         dlg.subjects_changed.connect(self.refresh)
         dlg.exec()
         self.refresh()
+        target = getattr(dlg, "last_saved_subject", None)
+        if target:
+            self._select_subject_in_list(target)
 
     def _on_record_for_subject(self):
         subj = self._current_subject or ""

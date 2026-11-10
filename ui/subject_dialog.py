@@ -48,6 +48,7 @@ class SubjectManagementDialog(QDialog):
 
         self._current_editing_original_name: Optional[str] = None
         self._is_new_mode: bool = False
+        self.last_saved_subject: Optional[str] = None
 
         self._init_ui()
         self._populate_list()
@@ -198,9 +199,9 @@ class SubjectManagementDialog(QDialog):
         self._populate_list(select_name=curr_selected)
 
     def _get_selected_subject_name(self) -> Optional[str]:
-        item = self.subject_list.currentItem()
-        if item:
-            return item.data(Qt.ItemDataRole.UserRole)
+        items = self.subject_list.selectedItems()
+        if items:
+            return items[0].data(Qt.ItemDataRole.UserRole)
         return None
 
     def _on_selection_changed(self):
@@ -224,7 +225,11 @@ class SubjectManagementDialog(QDialog):
     def _start_new_subject(self):
         self._is_new_mode = True
         self._current_editing_original_name = None
+        self.subject_list.blockSignals(True)
         self.subject_list.clearSelection()
+        self.subject_list.setCurrentItem(None)
+        self.subject_list.setCurrentRow(-1)
+        self.subject_list.blockSignals(False)
         self.editor_title.setText("Create New Subject / Course")
         self.name_input.clear()
         self.code_input.clear()
@@ -253,6 +258,7 @@ class SubjectManagementDialog(QDialog):
         try:
             if self._is_new_mode:
                 subject_manager.add_subject(name=name, code=code, modules=modules)
+                self.last_saved_subject = name
                 InfoBar.success(
                     title="Subject Added",
                     content=f"'{name}' added successfully.",
@@ -267,6 +273,7 @@ class SubjectManagementDialog(QDialog):
                     code=code,
                     modules=modules,
                 )
+                self.last_saved_subject = name
                 InfoBar.success(
                     title="Subject Updated",
                     content=f"'{name}' updated successfully.",

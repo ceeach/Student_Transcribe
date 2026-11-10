@@ -86,7 +86,18 @@ class SubjectManager:
     def __init__(self, storage_path: Optional[Path] = None):
         self.storage_path = storage_path or SUBJECTS_FILE
         self._subjects: Dict[str, Subject] = {}
+        self._last_mtime: float = 0.0
         self.load()
+
+    def _ensure_fresh(self):
+        """Reload from disk if file modified by another instance or dialog."""
+        if self.storage_path.exists():
+            try:
+                mtime = self.storage_path.stat().st_mtime
+                if mtime > getattr(self, "_last_mtime", 0.0):
+                    self.load()
+            except Exception:
+                pass
 
     def load(self):
         """Load subjects from persistent JSON file or load defaults."""
@@ -98,6 +109,7 @@ class SubjectManager:
             return
 
         try:
+            self._last_mtime = self.storage_path.stat().st_mtime
             with open(self.storage_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
             self._subjects.clear()
@@ -123,12 +135,14 @@ class SubjectManager:
             export_list = [s.to_dict() for s in self._subjects.values()]
             with open(self.storage_path, "w", encoding="utf-8") as f:
                 json.dump(export_list, f, indent=2, ensure_ascii=False)
+            self._last_mtime = self.storage_path.stat().st_mtime
             logger.info(f"Saved {len(self._subjects)} subjects to {self.storage_path}")
         except Exception as e:
             logger.error(f"Error saving subjects: {e}")
 
     def get_all(self) -> List[Subject]:
         """Return list of all subjects sorted by name."""
+        self._ensure_fresh()
         return sorted(self._subjects.values(), key=lambda s: s.name.lower())
 
     def get_all_subjects(self) -> List[Subject]:
@@ -136,25 +150,29 @@ class SubjectManager:
         return self.get_all()
 
     def get_subject_names(self) -> List[str]:
+        self._ensure_fresh()
         return [s.name for s in self.get_all()]
 
     def get_subject(self, name: str) -> Optional[Subject]:
+        self._ensure_fresh()
         return self._subjects.get(name)
 
     def add_subject(
         self,
-        name_or_subject: Any,
+        name: Any = None,
         code: str = "",
         color: str = "#38bdf8",
         modules: Optional[List[str]] = None,
+        name_or_subject: Any = None,
     ) -> Subject:
-        if isinstance(name_or_subject, Subject):
-            clean_name = name_or_subject.name.strip()
-            code = name_or_subject.code or code
-            color = name_or_subject.color or color
-            modules = name_or_subject.modules if modules is None else modules
+        actual_name = name if name is not None else name_or_subject
+        if isinstance(actual_name, Subject):
+            clean_name = actual_name.name.strip()
+            code = actual_name.code or code
+            color = actual_name.color or color
+            modules = actual_name.modules if modules is None else modules
         else:
-            clean_name = str(name_or_subject).strip()
+            clean_name = str(actual_name).strip() if actual_name is not None else ""
         if not clean_name:
             raise ValueError("Subject name cannot be empty.")
         if clean_name in self._subjects:

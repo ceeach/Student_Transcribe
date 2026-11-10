@@ -49,7 +49,7 @@ from qfluentwidgets import (
 
 from audio_recorder import RECORDINGS_DIR
 from logger import get_logger, open_log_file
-from subject_manager import SubjectManager
+from subject_manager import subject_manager
 from transcript_storage import (
     delete_transcript,
     get_recording_academic_info,
@@ -304,8 +304,7 @@ class RecordingsListWidget(QWidget):
             self.subject_filter_combo.clear()
             self.subject_filter_combo.addItem("All Subjects")
             try:
-                subj_mgr = SubjectManager()
-                for s in subj_mgr.get_all_subjects():
+                for s in subject_manager.get_all_subjects():
                     self.subject_filter_combo.addItem(s.name)
             except Exception:
                 pass
@@ -559,13 +558,12 @@ class RecordingsListWidget(QWidget):
         dialog.viewLayout.addLayout(subj_row)
 
         subj_combo = ComboBox(dialog)
-        subj_mgr = SubjectManager()
 
         def _reload_combo():
             curr = subj_combo.currentData() or current_subj
             subj_combo.blockSignals(True)
             subj_combo.clear()
-            for s in subj_mgr.get_all_subjects():
+            for s in subject_manager.get_all_subjects():
                 code_prefix = f"[{s.code}] " if s.code else ""
                 subj_combo.addItem(f"{code_prefix}{s.name}", userData=s.name)
             if curr:

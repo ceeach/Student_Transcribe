@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from PyQt6.QtCore import QSize, Qt, QTime, QTimer, QUrl, pyqtSignal
-from PyQt6.QtGui import QFont, QIcon, QColor
+from PyQt6.QtGui import QFont, QIcon, QColor, QTextCursor
 from PyQt6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -202,8 +202,8 @@ class TranscribeInterface(QWidget):
         self.recorder = recorder
         self.video_watcher = video_watcher
         self.audio_player = audio_player
-        from subject_manager import SubjectManager
-        self.subject_manager = SubjectManager()
+        from subject_manager import subject_manager
+        self.subject_manager = subject_manager
         self._current_record_elapsed: float = 0.0
         self._init_ui()
 
@@ -699,8 +699,8 @@ class TranscribeInterface(QWidget):
 
         parent_layout.addWidget(self.output_card, 1)
 
-    def _populate_subject_dropdown(self):
-        curr_selected = self.subject_combo.currentData() or self.subject_combo.currentText()
+    def _populate_subject_dropdown(self, select_name: Optional[str] = None):
+        curr_selected = select_name or self.subject_combo.currentData() or self.subject_combo.currentText()
         self.subject_combo.blockSignals(True)
         self.subject_combo.clear()
         subjects = self.subject_manager.get_all_subjects()
@@ -716,6 +716,7 @@ class TranscribeInterface(QWidget):
                 if idx >= 0:
                     self.subject_combo.setCurrentIndex(idx)
         self.subject_combo.blockSignals(False)
+        self._on_subject_changed(self.subject_combo.currentIndex())
 
     def _on_subject_changed(self, index: int):
         subj_name = self.subject_combo.currentData()
@@ -729,9 +730,10 @@ class TranscribeInterface(QWidget):
         from ui.subject_dialog import SubjectManagementDialog
         dlg = SubjectManagementDialog(self.window())
         dlg._start_new_subject()
-        dlg.subjects_changed.connect(self._populate_subject_dropdown)
+        dlg.subjects_changed.connect(lambda: self._populate_subject_dropdown(getattr(dlg, "last_saved_subject", None)))
         dlg.exec()
-        self._populate_subject_dropdown()
+        target = getattr(dlg, "last_saved_subject", None)
+        self._populate_subject_dropdown(select_name=target)
         if hasattr(self.window(), "recordings_list"):
             self.window().recordings_list.refresh()
 
@@ -741,9 +743,10 @@ class TranscribeInterface(QWidget):
         curr_subj = self.subject_combo.currentData()
         if curr_subj:
             dlg._populate_list(select_name=curr_subj)
-        dlg.subjects_changed.connect(self._populate_subject_dropdown)
+        dlg.subjects_changed.connect(lambda: self._populate_subject_dropdown(getattr(dlg, "last_saved_subject", None)))
         dlg.exec()
-        self._populate_subject_dropdown()
+        target = getattr(dlg, "last_saved_subject", None)
+        self._populate_subject_dropdown(select_name=target)
         if hasattr(self.window(), "recordings_list"):
             self.window().recordings_list.refresh()
 
@@ -1338,7 +1341,12 @@ class MainWindow(FluentWindow):
         self.status_label.setText(f"Video detected: '{fname}'. Queuing for audio extraction & deletion...")
         self.video_watcher.queue_video(video_path)
 
-    def _render_transcript_segments(self, segments: List[Dict[str, Any]], interim: str = ""):
+    def _render_transcript_segments(
+        self,
+        segments: List[Dict[str, Any]],
+        interim: str = "",
+        scroll_to_end: bool = True,
+    ):
         """Render segment list into output text preview with clickable speaker badges, audio timestamps, and live interim speech."""
         has_speakers = any("speaker" in seg for seg in segments)
         self.rename_speaker_btn.setEnabled(len(segments) > 0)
@@ -1380,11 +1388,25 @@ class MainWindow(FluentWindow):
                 f'</p>'
             )
 
-        sb = self.output_text.verticalScrollBar()
-        was_at_bottom = sb.value() >= (sb.maximum() - 30) or sb.maximum() == 0
         self.output_text.setHtml("".join(lines))
-        if was_at_bottom:
+
+        # Auto-scroll handling: live streaming follows newest lines to bottom; loading past file stays at top
+        if scroll_to_end:
+            cursor = self.output_text.textCursor()
+            cursor.movePosition(QTextCursor.MoveOperation.End)
+            self.output_text.setTextCursor(cursor)
+            self.output_text.ensureCursorVisible()
+
+            sb = self.output_text.verticalScrollBar()
             sb.setValue(sb.maximum())
+            QTimer.singleShot(25, lambda: sb.setValue(sb.maximum()))
+        else:
+            sb = self.output_text.verticalScrollBar()
+            sb.setValue(0)
+            cursor = self.output_text.textCursor()
+            cursor.movePosition(QTextCursor.MoveOperation.Start)
+            self.output_text.setTextCursor(cursor)
+            self.output_text.ensureCursorVisible()
 
         # Update stats
         unique_speakers = len(set(s.get("speaker", "Speaker 1") for s in segments)) if segments else 0
@@ -1459,7 +1481,7 @@ class MainWindow(FluentWindow):
             self._model_a_segments = list(segments)
             self._model_a_name = data.get("model", self._last_model_name)
 
-            self._render_transcript_segments(segments)
+            self._render_transcript_segments(segments, scroll_to_end=False)
 
             self.compare_models_btn.setEnabled(True)
             self.study_guide_btn.setEnabled(True)
@@ -2261,19 +2283,7 @@ class MainWindow(FluentWindow):
         self._transcribed_segments = merged_segments
         self._transcription_text = merged_text
 
-        self.output_text.clear()
-        for seg in merged_segments:
-            start_ts = format_timestamp(seg.get("start", 0.0))
-            end_ts = format_timestamp(seg.get("end", 0.0))
-            text = seg.get("text", "").strip()
-            html_segment = (
-                f'<p style="margin: 4px 0;">'
-                f'<span style="background-color: #064e3b; color: #34d399; font-size: 10px; font-weight: bold; padding: 1px 4px; border-radius: 3px; margin-right: 4px;">VERIFIED</span> '
-                f'<span style="color: #38bdf8; font-weight: bold; font-family: monospace;">[{start_ts} - {end_ts}]</span> '
-                f'<span style="color: #f8fafc;">{text}</span>'
-                f'</p>'
-            )
-            self.output_text.append(html_segment)
+        self._render_transcript_segments(merged_segments, scroll_to_end=False)
 
         words = sum(len(s.get("text", "").split()) for s in self._transcribed_segments)
         self.stats_label.setText(f"{len(self._transcribed_segments)} segments | {words} words (Verified ✓)")

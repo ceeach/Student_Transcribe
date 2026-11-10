@@ -368,7 +368,6 @@ class GeminiLiveTranscriber(QObject):
                             }
                             self.segments.append(seg)
                             self.segment_received.emit(seg)
-                            logger.info(f"Gemini Live [{seg['timestamp_str']}]: {clean_text}")
 
                     # 3. General model turn parts (for text generation mode)
                     elif "modelTurn" in sc:
@@ -390,7 +389,6 @@ class GeminiLiveTranscriber(QObject):
                                 }
                                 self.segments.append(seg)
                                 self.segment_received.emit(seg)
-                                logger.info(f"Gemini Live [{seg['timestamp_str']}]: {clean_text}")
 
                 except Exception as e:
                     logger.warning(f"Error parsing Gemini Live message: {e}")
@@ -435,7 +433,6 @@ class GeminiLiveTranscriber(QObject):
             }
             self.segments.append(seg)
             self.segment_received.emit(seg)
-            logger.info(f"Gemini Live committed interim [{seg['timestamp_str']}]: {self._latest_interim}")
             self._latest_interim = ""
 
         # Emit completion

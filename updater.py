@@ -39,7 +39,7 @@ from logger import get_logger, LOG_FILE
 
 logger = get_logger("Updater")
 
-APP_VERSION = "1.4.1"
+APP_VERSION = "1.4.2"
 GITHUB_REPO = "ceeach/Student_Transcribe"
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 GITHUB_ISSUES_URL = f"https://github.com/ceeach/Student_Transcribe/issues/new"
@@ -295,7 +295,7 @@ class UpdateDialog(MessageBoxBase):
         try:
             # Launch setup in a separate detached process and exit this app so the installer can update files
             if sys.platform == "win32":
-                subprocess.Popen([setup_path, "/SILENT=false"], close_fds=True)
+                subprocess.Popen([setup_path, "/SILENT"], close_fds=True)
                 sys.exit(0)
             else:
                 subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", setup_path])

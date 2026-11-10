@@ -79,7 +79,7 @@ Student Transcribe includes an automated build pipeline using PyInstaller and In
 powershell -ExecutionPolicy Bypass -File .\build_installer.ps1
 ```
 The compiled installer will be saved to:
-`output/StudentTranscribe-Setup-v1.4.2.exe`
+`output/StudentTranscribe-Setup-v1.4.3.exe`
 
 ---
 

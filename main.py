@@ -49,6 +49,7 @@ from qfluentwidgets import (
     ToolButton,
     TransparentPushButton,
     TransparentToolButton,
+    setFont,
     isDarkTheme,
     setTheme,
     setThemeColor,
@@ -245,12 +246,12 @@ class TranscribeInterface(QWidget):
         self.recordings_list = RecordingsListWidget(parent=self)
         self.recordings_list.setObjectName("historyPage")
 
-        # Add to stack and pivot (escape && so Qt does not treat & as an underline mnemonic)
-        self._add_pivot_page(self.record_page, "recordPage", "Record Live", icon=FIF.MICROPHONE)
-        self._add_pivot_page(self.upload_page, "uploadPage", "Upload File", icon=FIF.FOLDER)
-        self._add_pivot_page(self.video_tab, "videoPage", "Video Inbox", icon=FIF.VIDEO)
-        self._add_pivot_page(self.slide_companion, "slidesPage", "Class Slides && Annotate", icon=FIF.ALBUM)
-        self._add_pivot_page(self.subjects_hub, "subjectsPage", "Subjects", icon=FIF.EDUCATION)
+        # Add to stack and pivot (compact labels for sleek titlebar integration)
+        self._add_pivot_page(self.record_page, "recordPage", "Record", icon=FIF.MICROPHONE)
+        self._add_pivot_page(self.upload_page, "uploadPage", "Upload", icon=FIF.FOLDER)
+        self._add_pivot_page(self.video_tab, "videoPage", "Videos", icon=FIF.VIDEO)
+        self._add_pivot_page(self.slide_companion, "slidesPage", "Slides", icon=FIF.ALBUM)
+        self._add_pivot_page(self.subjects_hub, "subjectsPage", "Courses", icon=FIF.EDUCATION)
         self._add_pivot_page(self.recordings_list, "historyPage", "History", icon=FIF.HISTORY)
 
         self.pivot.setCurrentItem("recordPage")
@@ -273,12 +274,14 @@ class TranscribeInterface(QWidget):
 
     def _add_pivot_page(self, widget, route_key, text, icon=None):
         self.stacked_widget.addWidget(widget)
-        self.pivot.addItem(
+        item = self.pivot.addItem(
             routeKey=route_key,
             text=text,
             onClick=lambda: self._activate_pivot_subpage(widget, route_key),
             icon=icon,
         )
+        if item:
+            setFont(item, 13)
 
     def _activate_pivot_subpage(self, widget: QWidget, route_key: str):
         self.stacked_widget.setCurrentWidget(widget)
@@ -831,9 +834,9 @@ class MainWindow(FluentWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Student Transcribe v1.4.2")
+        self.setWindowTitle("Student Transcribe v1.4.3")
         self.resize(960, 820)
-        self.setMinimumSize(740, 480)
+        self.setMinimumSize(840, 520)
 
         # Set application icon
         self._icon_path = get_icon_path()
@@ -928,9 +931,8 @@ class MainWindow(FluentWindow):
         self.top_report_btn.clicked.connect(open_bug_report)
 
         # Top Settings button
-        self.top_settings_btn = TransparentPushButton("Settings", self.titleBar)
-        self.top_settings_btn.setIcon(FIF.SETTING)
-        self.top_settings_btn.setFixedHeight(30)
+        self.top_settings_btn = TransparentToolButton(FIF.SETTING, self.titleBar)
+        self.top_settings_btn.setFixedSize(36, 32)
         self.top_settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.top_settings_btn.setToolTip("Settings, Updates & Diagnostics")
         self.top_settings_btn.clicked.connect(self._open_settings)
@@ -949,6 +951,17 @@ class MainWindow(FluentWindow):
         self.titleBar.hBoxLayout.addSpacing(8)
         self.titleBar.hBoxLayout.addLayout(self.titleBar.vBoxLayout, 0)
 
+        # Ensure title bar buttons are always in front in Z-order above Pivot
+        self.titleBar.minBtn.raise_()
+        self.titleBar.maxBtn.raise_()
+        self.titleBar.closeBtn.raise_()
+        self.top_report_btn.raise_()
+        self.top_settings_btn.raise_()
+
+        # Constrain initial pivot maximum width to protect right-side window buttons
+        available_width = max(320, self.width() - 240)
+        self.transcribe_page.pivot.setMaximumWidth(available_width)
+
         # Reference to recordings list inside transcribe_page
         self.recordings_list = self.transcribe_page.recordings_list
 
@@ -965,6 +978,23 @@ class MainWindow(FluentWindow):
 
         # Set default page
         self.switchTo(self.transcribe_page)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, "titleBar"):
+            if hasattr(self.titleBar, "minBtn"):
+                self.titleBar.minBtn.raise_()
+            if hasattr(self.titleBar, "maxBtn"):
+                self.titleBar.maxBtn.raise_()
+            if hasattr(self.titleBar, "closeBtn"):
+                self.titleBar.closeBtn.raise_()
+            if hasattr(self, "top_report_btn"):
+                self.top_report_btn.raise_()
+            if hasattr(self, "top_settings_btn"):
+                self.top_settings_btn.raise_()
+            if hasattr(self, "transcribe_page") and hasattr(self.transcribe_page, "pivot"):
+                available_width = max(320, self.width() - 240)
+                self.transcribe_page.pivot.setMaximumWidth(available_width)
 
     def _open_class_slides_view(self):
         """Switch directly to the full-screen Class Slides & Annotate view."""
@@ -2872,7 +2902,7 @@ def main():
     if sys.platform == "win32":
         try:
             import ctypes
-            myappid = "studenttranscribe.app.1.4.2"
+            myappid = "studenttranscribe.app.1.4.3"
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
         except Exception:
             pass

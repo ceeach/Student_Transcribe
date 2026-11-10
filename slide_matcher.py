@@ -90,9 +90,15 @@ class SlideMatcher:
         self,
         spoken_text: str,
         current_slide_idx: int = -1,
-        min_confidence: float = 0.28,
+        min_confidence: float = 0.35,
+        forward_only: bool = True,
     ) -> Optional[Tuple[int, float, List[str]]]:
-        """Score spoken text against all slides.
+        """Score spoken text against slides.
+
+        When forward_only is True (default):
+            - Strongly focuses on moving to the next future slide (idx > current_slide_idx).
+            - Strictly skips older/previous slides to prevent recommending already covered material.
+            - Prioritizes the immediate next slide (current_slide_idx + 1).
 
         Returns:
             Tuple of (matched_slide_idx, confidence, matched_keywords) or None if below min_confidence.
@@ -108,6 +114,11 @@ class SlideMatcher:
 
         for item in self._indexed_slides:
             idx = item["slide_idx"]
+
+            # If Forward-Only is active, strictly skip any previous slides
+            if forward_only and current_slide_idx >= 0 and idx < current_slide_idx:
+                continue
+
             weights = item["weights"]
             total_w = item["total_weight"]
 
@@ -115,25 +126,31 @@ class SlideMatcher:
             if not matching_terms:
                 continue
 
+            # Reject weak single-term coincidences unless the term has high discriminatory weight (> 2.4)
+            max_term_w = max(weights[t] for t in matching_terms)
+            if len(matching_terms) < 2 and max_term_w < 2.4:
+                continue
+
             matched_weight = sum(weights[t] for t in matching_terms)
             # Base score normalized by slide complexity
             raw_score = matched_weight / math.sqrt(total_w * len(speech_terms) + 1.0)
 
-            # Continuity Prior: Professors usually advance linearly
+            # Continuity Prior: Professors progress forward in logical order
             continuity_boost = 0.0
             if current_slide_idx >= 0:
                 dist = idx - current_slide_idx
                 if dist == 0:
-                    continuity_boost = 0.12  # Currently on this slide
+                    continuity_boost = 0.15  # Currently on this slide (stays here unless next slide matches stronger)
                 elif dist == 1:
-                    continuity_boost = 0.16  # Next slide in logical order
+                    continuity_boost = 0.28  # Primary target: immediate next slide
                 elif dist == 2:
-                    continuity_boost = 0.06  # Two slides ahead
+                    continuity_boost = 0.10  # Two slides ahead
+                elif dist > 2:
+                    continuity_boost = -0.15  # Discourage sudden skipping far ahead
                 elif dist == -1:
-                    continuity_boost = 0.04  # Looking back 1 slide
-                elif dist < -1 or dist > 3:
-                    # Penalize sudden jumping 10 slides away unless raw score is overwhelmingly high
-                    continuity_boost = -0.10
+                    continuity_boost = -0.12 if not forward_only else 0.0
+                elif dist < -1:
+                    continuity_boost = -0.25 if not forward_only else 0.0
 
             final_score = raw_score + continuity_boost
             if final_score > 0:

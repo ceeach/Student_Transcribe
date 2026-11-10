@@ -38,7 +38,8 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "diarization_threshold": 0.5,  # clustering threshold (0.1 to 0.9)
     "beam_size": 1,  # 1 for fast greedy decoding (~2.5x faster), 5 for exhaustive search
     "whisper_language": "en",  # Default forced transcription language ("en", "auto", "de", "fr", "es", etc.)
-    "auto_advance_slides": False,  # Suggestion mode by default; True for automatic slide transitions
+    "auto_advance_slides": False,  # Suggestion mode by default (False); True for automatic slide transitions
+    "slides_forward_only": True,  # Only recommend/advance to future slides (default: True, prevents jumping to old slides)
     "notebooklm_drive_folder": "",  # Local Google Drive or synced cloud folder for NotebookLM
     "notebooklm_webhook_url": "",  # Optional HTTP POST webhook (Make/Zapier/custom)
     "auto_sync_notebooklm": False,  # Automatically sync lecture to NotebookLM on transcription completion

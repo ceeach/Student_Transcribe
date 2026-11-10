@@ -1139,7 +1139,7 @@ class SlideCompanionWidget(QWidget):
         self.auto_advance_switch.setChecked(bool(config_manager.get("auto_advance_slides", False)))
         self.auto_advance_switch.setToolTip(
             "Auto-Sync Slides:\n"
-            "• OFF (Suggestion Mode): Shows a 1-click 'Jump & Mark Here' pill when speech matches a slide\n"
+            "• OFF (Suggestion Mode, Default): Shows a 1-click 'Jump & Mark Here' pill when speech matches the next slide\n"
             "• ON (Full Auto-Advance): Automatically flips slides and marks 'We Are Here' in real time"
         )
         self.auto_advance_switch.checkedChanged.connect(self._on_auto_advance_changed)
@@ -1148,6 +1148,25 @@ class SlideCompanionWidget(QWidget):
         auto_box.addWidget(self.auto_advance_switch)
         auto_box.addWidget(auto_lbl)
         top_bar.addLayout(auto_box)
+
+        # Future-Only toggle (Only recommend/advance forward, never suggest old slides)
+        forward_box = QHBoxLayout()
+        forward_box.setSpacing(4)
+        self.forward_only_switch = SwitchButton(self)
+        self.forward_only_switch.setOnText("")
+        self.forward_only_switch.setOffText("")
+        self.forward_only_switch.setChecked(bool(config_manager.get("slides_forward_only", True)))
+        self.forward_only_switch.setToolTip(
+            "Future Slides Only:\n"
+            "• ON (Recommended, Default): Only matches the next/upcoming slides (e.g. Slide 5 -> Slide 6). Prevents recommending old slides.\n"
+            "• OFF: Allows matching backward to previously covered slides."
+        )
+        self.forward_only_switch.checkedChanged.connect(self._on_forward_only_changed)
+        forward_lbl = CaptionLabel("Future Only", self)
+        forward_lbl.setToolTip(self.forward_only_switch.toolTip())
+        forward_box.addWidget(self.forward_only_switch)
+        forward_box.addWidget(forward_lbl)
+        top_bar.addLayout(forward_box)
 
         # 1-Click Auto-Map Timeline from Transcript button
         self.auto_align_btn = PushButton("Auto-Map Timeline", self)
@@ -2019,11 +2038,21 @@ class SlideCompanionWidget(QWidget):
         if checked:
             self._dismiss_suggestion()
 
+    def _on_forward_only_changed(self, checked: bool):
+        config_manager.set("slides_forward_only", checked)
+        config_manager.save()
+        if checked and self._suggested_slide_idx >= 0:
+            deck = self.current_deck
+            current_idx = deck.active_idx if deck and deck.active_idx >= 0 else (deck.preview_idx if deck else -1)
+            if current_idx >= 0 and self._suggested_slide_idx <= current_idx:
+                self._dismiss_suggestion()
+
     def process_spoken_text(self, spoken_text: str, timestamp: float) -> Optional[int]:
         """Match spoken lecture text against the current slide deck.
 
         In Auto-Advance mode: automatically flips slide and marks 'We Are Here'.
-        In Suggestion mode: displays an interactive pill to confirm with 1 click.
+        In Suggestion mode (Default): displays an interactive pill to confirm with 1 click.
+        When Future-Only is active: only matches the next/future slide (e.g. Slide 5 -> Slide 6).
         """
         deck = self.current_deck
         if not deck or not deck.matcher or len(deck.pixmaps) == 0:
@@ -2035,7 +2064,14 @@ class SlideCompanionWidget(QWidget):
             return None
 
         current_idx = deck.active_idx if deck.active_idx >= 0 else deck.preview_idx
-        match = deck.matcher.match_speech(spoken_text, current_slide_idx=current_idx, min_confidence=0.30)
+        forward_only = self.forward_only_switch.isChecked() if hasattr(self, "forward_only_switch") else True
+
+        match = deck.matcher.match_speech(
+            spoken_text,
+            current_slide_idx=current_idx,
+            min_confidence=0.35,
+            forward_only=forward_only,
+        )
         if not match:
             return None
 
@@ -2043,8 +2079,12 @@ class SlideCompanionWidget(QWidget):
         if matched_idx < 0 or matched_idx >= len(deck.pixmaps):
             return None
 
-        # If already on this active slide, no action needed
-        if matched_idx == deck.active_idx:
+        # If already on this active slide or preview, no transition action needed
+        if matched_idx == current_idx or matched_idx == deck.active_idx:
+            return None
+
+        # If forward-only is on, strictly require the target slide to be in the future
+        if forward_only and current_idx >= 0 and matched_idx <= current_idx:
             return None
 
         self._last_match_time = now
@@ -2065,7 +2105,7 @@ class SlideCompanionWidget(QWidget):
             self._suggested_timestamp = timestamp
             kw_str = f" • Matching: {', '.join(matched_keywords[:3])}" if matched_keywords else ""
             self.suggestion_label.setText(
-                f"Professor may be on Slide {matched_idx + 1}: \"{title}\" ({int(confidence * 100)}% match){kw_str}"
+                f"Next Slide Suggested: Slide {matched_idx + 1} - \"{title}\" ({int(confidence * 100)}% match){kw_str}"
             )
             self.suggestion_card.setVisible(True)
             QTimer.singleShot(14000, self._auto_hide_suggestion)

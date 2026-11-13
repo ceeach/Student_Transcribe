@@ -199,7 +199,7 @@ class GeminiLiveTranscriber(QObject):
         )
 
         reconnect_attempts = 0
-        max_reconnects = 5
+        max_reconnects = 8
 
         while self._is_running:
             ws = None
@@ -276,18 +276,21 @@ class GeminiLiveTranscriber(QObject):
                 if is_rotation:
                     logger.info(f"Gemini Live session rotated smoothly (session duration reached): {e}")
                     reconnect_attempts = 0  # Expected session duration rotation, not an error
+                    self.status_changed.emit("Refreshing live transcription connection...")
+                    await asyncio.sleep(0.3)
                 else:
                     logger.warning(f"Gemini Live transient disconnect: {e}")
                     reconnect_attempts += 1
 
-                if reconnect_attempts > max_reconnects:
-                    err_msg = f"Gemini Live disconnected after {max_reconnects} reconnect attempts: {e}"
-                    logger.error(err_msg)
-                    self.error_occurred.emit(err_msg)
-                    break
+                    if reconnect_attempts > max_reconnects:
+                        err_msg = f"Gemini Live disconnected after {max_reconnects} reconnect attempts: {e}"
+                        logger.error(err_msg)
+                        self.error_occurred.emit(err_msg)
+                        break
 
-                self.status_changed.emit("Refreshing live transcription connection...")
-                await asyncio.sleep(0.3)
+                    delay = min(15.0, 1.5 * (2 ** (reconnect_attempts - 1)))
+                    self.status_changed.emit(f"Network blip — reconnecting in {delay:.1f}s ({reconnect_attempts}/{max_reconnects})...")
+                    await asyncio.sleep(delay)
 
     async def _audio_sender(self, ws):
         """Read queued PCM audio chunks and send to Gemini Live WebSocket."""

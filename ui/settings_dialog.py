@@ -24,6 +24,7 @@ from qfluentwidgets import (
     CardWidget,
     CheckBox,
     ComboBox,
+    EditableComboBox,
     FluentIcon as FIF,
     InfoBar,
     InfoBarPosition,
@@ -300,17 +301,30 @@ class SettingsDialog(QDialog):
         self.gemini_key_input.setPlaceholderText("AIzaSy...")
         gemini_layout.addLayout(self._create_form_row("Gemini API Key:", self.gemini_key_input, "Get a free API key at aistudio.google.com"))
 
-        self.gemini_model_combo = ComboBox(self)
+        live_model_row = QHBoxLayout()
+        live_model_row.setSpacing(8)
+
+        self.gemini_model_combo = EditableComboBox(self)
         self.gemini_model_combo.addItems([
-            "Gemini 3.5 Transcribe Live",
+            "gemini-3.5-transcribe-live",
+            "gemini-2.5-flash-native-audio-preview",
+            "gemini-2.0-flash-live-001",
             "gemini-2.0-flash",
-            "gemini-1.5-flash",
-            "gemini-1.5-pro",
         ])
+        self.gemini_model_combo.setPlaceholderText("Select or type a Gemini Live model ID...")
+
+        self.fetch_live_transcribe_btn = PushButton("Fetch", self)
+        self.fetch_live_transcribe_btn.setIcon(FIF.SYNC)
+        self.fetch_live_transcribe_btn.setToolTip("Fetch currently available real-time Live/Transcribe models from your Gemini API key")
+        self.fetch_live_transcribe_btn.clicked.connect(self._fetch_live_transcribe_models)
+
+        live_model_row.addWidget(self.gemini_model_combo, 1)
+        live_model_row.addWidget(self.fetch_live_transcribe_btn)
+
         gemini_layout.addLayout(self._create_form_row(
             "Live Transcribe Model:",
-            self.gemini_model_combo,
-            "Real-time streaming speech-to-text model via WebSocket."
+            live_model_row,
+            "Real-time streaming speech-to-text model via WebSocket. Click Fetch to load newer models or type any model ID."
         ))
 
         # Summary & Notes Model Priority Fallback Chain
@@ -569,7 +583,9 @@ class SettingsDialog(QDialog):
         self._on_ai_provider_changed()
 
         self.gemini_key_input.setText(config_manager.get("gemini_api_key", ""))
-        saved_gemini_model = config_manager.get("gemini_model", "Gemini 3.5 Transcribe Live")
+        saved_gemini_model = config_manager.get("gemini_model", "gemini-3.5-transcribe-live")
+        if saved_gemini_model == "Gemini 3.5 Transcribe Live":
+            saved_gemini_model = "gemini-3.5-transcribe-live"
         idx = self.gemini_model_combo.findText(saved_gemini_model)
         if idx >= 0:
             self.gemini_model_combo.setCurrentIndex(idx)
@@ -587,6 +603,49 @@ class SettingsDialog(QDialog):
         self.ollama_host_input.setText(config_manager.get("ollama_host", "http://localhost:11434"))
         self.ollama_model_input.setText(config_manager.get("ollama_model", "llama3.2"))
         self.ollama_key_input.setText(config_manager.get("ollama_api_key", ""))
+
+    def _fetch_live_transcribe_models(self):
+        key = self.gemini_key_input.text().strip()
+        if not key:
+            InfoBar.warning(
+                title="API Key Required",
+                content="Please enter your Gemini API Key first to fetch available Live models.",
+                isClosable=True,
+                duration=4000,
+                position=InfoBarPosition.TOP,
+                parent=self,
+            )
+            return
+
+        self.fetch_live_transcribe_btn.setEnabled(False)
+        self.fetch_live_transcribe_btn.setText("...")
+
+        from ai_service import AIService
+        try:
+            live_models = AIService.get_gemini_live_models(key)
+            if live_models:
+                current_text = self.gemini_model_combo.currentText().strip()
+                self.gemini_model_combo.clear()
+                self.gemini_model_combo.addItems(live_models)
+                if current_text and self.gemini_model_combo.findText(current_text) >= 0:
+                    self.gemini_model_combo.setCurrentText(current_text)
+                else:
+                    self.gemini_model_combo.setCurrentIndex(0)
+                InfoBar.success(
+                    title="Live Transcribe Models Updated",
+                    content=f"Loaded {len(live_models)} live/streaming models (top: {live_models[0]}).",
+                    isClosable=True,
+                    duration=5000,
+                    position=InfoBarPosition.TOP,
+                    parent=self,
+                )
+            else:
+                InfoBar.warning(title="No Live Models Found", content="No streaming/live models returned from API.", parent=self)
+        except Exception as e:
+            InfoBar.error(title="Fetch Failed", content=str(e), isClosable=True, duration=5000, parent=self)
+        finally:
+            self.fetch_live_transcribe_btn.setEnabled(True)
+            self.fetch_live_transcribe_btn.setText("Fetch")
 
     def _fetch_gemini_models(self):
         key = self.gemini_key_input.text().strip()
@@ -607,13 +666,22 @@ class SettingsDialog(QDialog):
         from ai_service import AIService
         try:
             models = AIService.get_gemini_models(key)
+            live_models = AIService.get_gemini_live_models(key)
+            if live_models:
+                current_text = self.gemini_model_combo.currentText().strip()
+                self.gemini_model_combo.clear()
+                self.gemini_model_combo.addItems(live_models)
+                if current_text and self.gemini_model_combo.findText(current_text) >= 0:
+                    self.gemini_model_combo.setCurrentText(current_text)
+                else:
+                    self.gemini_model_combo.setCurrentIndex(0)
             if models:
                 # Rank top Flash models for summary generation
                 priority_chain = ", ".join(models[:6])
                 self.gemini_summary_priority_input.setText(priority_chain)
                 InfoBar.success(
                     title="Models Fetched Successfully",
-                    content=f"Found {len(models)} active text models! Priority chain ranked with newest versions.",
+                    content=f"Found {len(models)} text models and {len(live_models)} live transcribe models!",
                     isClosable=True,
                     duration=5000,
                     position=InfoBarPosition.TOP,

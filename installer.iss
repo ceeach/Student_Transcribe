@@ -2,7 +2,7 @@
 ; Student Transcribe Windows Installer
 
 #define MyAppName "Student Transcribe"
-#define MyAppVersion "1.4.5"
+#define MyAppVersion "1.4.6"
 #define MyAppPublisher "Student Transcribe Team"
 #define MyAppExeName "Student Transcribe.exe"
 
@@ -16,7 +16,7 @@ UninstallDisplayIcon={app}\{#MyAppExeName}
 DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
 OutputDir=output
-OutputBaseFilename=StudentTranscribe-Setup-v1.4.5
+OutputBaseFilename=StudentTranscribe-Setup-v1.4.6
 SetupIconFile=assets\icon.ico
 SolidCompression=yes
 Compression=lzma2/max

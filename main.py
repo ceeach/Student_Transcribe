@@ -831,7 +831,7 @@ class MainWindow(FluentWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Student Transcribe v1.4.5")
+        self.setWindowTitle("Student Transcribe v1.4.6")
         self.resize(960, 820)
         self.setMinimumSize(840, 520)
 
@@ -2899,7 +2899,7 @@ def main():
     if sys.platform == "win32":
         try:
             import ctypes
-            myappid = "studenttranscribe.app.1.4.5"
+            myappid = "studenttranscribe.app.1.4.6"
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
         except Exception:
             pass

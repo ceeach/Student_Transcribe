@@ -125,6 +125,64 @@ class AIService:
             return fallback_models
 
     @staticmethod
+    def get_gemini_live_models(api_key: str) -> List[str]:
+        """Fetch available real-time Live / Bidi / Transcribe models from Google Gemini API."""
+        fallback_models = [
+            "gemini-3.5-transcribe-live",
+            "gemini-2.5-flash-native-audio-preview",
+            "gemini-2.0-flash-live-001",
+            "gemini-2.0-flash",
+        ]
+        if not api_key:
+            return fallback_models
+
+        import re
+
+        live_models: List[str] = []
+        seen = set()
+        # Check v1alpha and v1beta model endpoints because newer live/transcribe models often appear in v1alpha first
+        for ver in ("v1alpha", "v1beta"):
+            url = f"https://generativelanguage.googleapis.com/{ver}/models?key={api_key.strip()}"
+            try:
+                req = urllib.request.Request(url, headers={"User-Agent": "NotionTranscribe"})
+                with urllib.request.urlopen(req, timeout=6) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+
+                for m in data.get("models", []):
+                    name = m.get("name", "").replace("models/", "").strip()
+                    if not name or name in seen:
+                        continue
+                    methods = m.get("supportedGenerationMethods", [])
+                    low = name.lower()
+                    if any(k in low for k in ("embedding", "imagen", "veo", "tts", "robotics", "computer-use")):
+                        continue
+                    if "bidiGenerateContent" in methods or "transcribe" in low or "live" in low:
+                        seen.add(name)
+                        live_models.append(name)
+            except Exception as e:
+                logger.warning(f"Error fetching Gemini Live models from {ver}: {e}")
+
+        if not live_models:
+            live_models = list(fallback_models)
+
+        def sort_key(name: str):
+            low = name.lower()
+            is_transcribe = 3 if "transcribe" in low else (2 if "live" in low else (1 if "audio" in low else 0))
+            match = re.search(r"gemini-(\d+(?:\.\d+)?)", low)
+            ver = float(match.group(1)) if match else 0.0
+            is_flash = 1 if "flash" in low else 0
+            return (is_transcribe, ver, is_flash)
+
+        ranked_live = sorted(live_models, key=sort_key, reverse=True)
+        # Ensure known default live model is available if API doesn't list websocket-only suffix, plus top flash models
+        if "gemini-3.5-transcribe-live" not in ranked_live:
+            ranked_live.insert(0, "gemini-3.5-transcribe-live")
+        for fm in AIService.get_gemini_models(api_key)[:4]:
+            if fm not in ranked_live:
+                ranked_live.append(fm)
+        return ranked_live
+
+    @staticmethod
     def query_gemini_with_fallback(
         prompt: str,
         api_key: str,

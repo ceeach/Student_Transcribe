@@ -39,7 +39,7 @@ from logger import get_logger, LOG_FILE
 
 logger = get_logger("Updater")
 
-APP_VERSION = "1.4.6"
+APP_VERSION = "1.4.7"
 GITHUB_REPO = "ceeach/Student_Transcribe"
 GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 GITHUB_ISSUES_URL = f"https://github.com/ceeach/Student_Transcribe/issues/new"

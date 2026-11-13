@@ -64,7 +64,7 @@ Write-Host "[4/4] Compiling Windows Setup Installer (.exe)..." -ForegroundColor 
 New-Item -ItemType Directory -Force -Path "output" | Out-Null
 & $IsccExe "installer.iss"
 
-$InstallerPath = "output\StudentTranscribe-Setup-v1.4.6.exe"
+$InstallerPath = "output\StudentTranscribe-Setup-v1.4.7.exe"
 if (Test-Path $InstallerPath) {
     $SizeMB = [math]::Round((Get-Item $InstallerPath).Length / 1MB, 2)
     Write-Host ""

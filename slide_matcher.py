@@ -28,10 +28,31 @@ def tokenize_text(text: str) -> List[str]:
     return words
 
 
+def _stem_word(word: str) -> str:
+    """Lightweight suffix stripping so morphological variants match (e.g. optimizing -> optimiz)."""
+    if len(word) <= 4:
+        return word
+    for suffix in ("ation", "ition", "ment", "ness", "ings", "ing", "ies", "ied", "ers", "ed", "es", "ly", "s"):
+        if word.endswith(suffix) and len(word) - len(suffix) >= 4:
+            if suffix == "ies":
+                return word[:-3] + "y"
+            if suffix == "ied":
+                return word[:-3] + "y"
+            return word[: -len(suffix)]
+    return word
+
+
 def extract_content_keywords(text: str) -> Set[str]:
-    """Extract content terms excluding common stopwords."""
+    """Extract content terms excluding common stopwords, keeping both raw and stemmed forms."""
     words = tokenize_text(text)
-    return {w for w in words if w not in COMMON_STOPWORDS and not w.isdigit()}
+    keywords: Set[str] = set()
+    for w in words:
+        if w not in COMMON_STOPWORDS and not w.isdigit():
+            keywords.add(w)
+            stem = _stem_word(w)
+            if stem != w and len(stem) >= 4:
+                keywords.add(stem)
+    return keywords
 
 
 class SlideMatcher:
@@ -82,6 +103,7 @@ class SlideMatcher:
             self._indexed_slides.append({
                 "slide_idx": idx,
                 "title": title or f"Slide {idx + 1}",
+                "title_terms": title_terms,
                 "weights": term_weights,
                 "total_weight": total_weight,
             })
@@ -90,7 +112,7 @@ class SlideMatcher:
         self,
         spoken_text: str,
         current_slide_idx: int = -1,
-        min_confidence: float = 0.35,
+        min_confidence: float = 0.45,
         forward_only: bool = True,
     ) -> Optional[Tuple[int, float, List[str]]]:
         """Score spoken text against slides.
@@ -121,30 +143,41 @@ class SlideMatcher:
 
             weights = item["weights"]
             total_w = item["total_weight"]
+            title_terms = item.get("title_terms", set())
 
             matching_terms = [t for t in speech_terms if t in weights]
             if not matching_terms:
                 continue
 
-            # Reject weak single-term coincidences unless the term has high discriminatory weight (> 2.4)
+            matched_title_terms = [t for t in matching_terms if t in title_terms]
+
+            # Reject weak single-term coincidences unless it's a title term or high discriminatory weight (> 2.2)
             max_term_w = max(weights[t] for t in matching_terms)
-            if len(matching_terms) < 2 and max_term_w < 2.4:
+            if len(matching_terms) < 2 and not matched_title_terms and max_term_w < 2.2:
                 continue
 
             matched_weight = sum(weights[t] for t in matching_terms)
-            # Base score normalized by slide complexity
-            raw_score = matched_weight / math.sqrt(total_w * len(speech_terms) + 1.0)
+            # Normalize against capped slide complexity so text-heavy slides are not unfairly penalized
+            effective_slide_w = min(total_w, 42.0)
+            effective_speech_len = min(len(speech_terms), 18)
+            raw_score = matched_weight / (math.sqrt(effective_slide_w * effective_speech_len) + 1.0)
+
+            # Strong Title Coverage Bonus: speaking a slide's heading is the clearest transition signal
+            title_bonus = 0.0
+            if title_terms and matched_title_terms:
+                title_coverage = len(matched_title_terms) / len(title_terms)
+                title_bonus = 0.35 * title_coverage + (0.12 if len(matched_title_terms) >= 2 else 0.0)
 
             # Continuity Prior: Professors progress forward in logical order
             continuity_boost = 0.0
             if current_slide_idx >= 0:
                 dist = idx - current_slide_idx
                 if dist == 0:
-                    continuity_boost = 0.15  # Currently on this slide (stays here unless next slide matches stronger)
+                    continuity_boost = 0.12  # Currently on this slide
                 elif dist == 1:
-                    continuity_boost = 0.28  # Primary target: immediate next slide
+                    continuity_boost = 0.24  # Primary target: immediate next slide
                 elif dist == 2:
-                    continuity_boost = 0.10  # Two slides ahead
+                    continuity_boost = 0.08  # Two slides ahead
                 elif dist > 2:
                     continuity_boost = -0.15  # Discourage sudden skipping far ahead
                 elif dist == -1:
@@ -152,7 +185,7 @@ class SlideMatcher:
                 elif dist < -1:
                     continuity_boost = -0.25 if not forward_only else 0.0
 
-            final_score = raw_score + continuity_boost
+            final_score = raw_score + title_bonus + continuity_boost
             if final_score > 0:
                 candidates.append((idx, final_score, matching_terms))
 
@@ -163,8 +196,8 @@ class SlideMatcher:
         candidates.sort(key=lambda x: x[1], reverse=True)
         best_idx, best_score, best_terms = candidates[0]
 
-        # Convert score to an intuitive confidence percentage [0.0 - 1.0]
-        confidence = min(0.99, max(0.10, best_score / (best_score + 0.6)))
+        # Calibrated confidence curve [0.10 - 0.99]: strong matches reach 70%-95%+
+        confidence = min(0.99, max(0.10, best_score / (best_score + 0.28)))
 
         if confidence >= min_confidence:
             return best_idx, confidence, best_terms

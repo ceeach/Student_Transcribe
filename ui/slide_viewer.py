@@ -997,6 +997,7 @@ class SlideCompanionWidget(QWidget):
         self._suggested_slide_idx: int = -1
         self._suggested_timestamp: float = 0.0
         self._last_match_time: float = 0.0
+        self._recent_speech_segments: List[str] = []
         self.transcript_segments_provider = None
         self.lecture_metadata_provider = None
         self._has_exported_pdf: bool = False
@@ -2058,18 +2059,25 @@ class SlideCompanionWidget(QWidget):
         if not deck or not deck.matcher or len(deck.pixmaps) == 0:
             return None
 
+        clean_text = (spoken_text or "").strip()
+        if clean_text:
+            self._recent_speech_segments.append(clean_text)
+            if len(self._recent_speech_segments) > 4:
+                self._recent_speech_segments = self._recent_speech_segments[-4:]
+
         # Rate-limit slide matching to avoid rapid bouncing
         now = time.monotonic()
         if now - self._last_match_time < 3.0:
             return None
 
+        combined_speech = " ".join(self._recent_speech_segments)
         current_idx = deck.active_idx if deck.active_idx >= 0 else deck.preview_idx
         forward_only = self.forward_only_switch.isChecked() if hasattr(self, "forward_only_switch") else True
 
         match = deck.matcher.match_speech(
-            spoken_text,
+            combined_speech,
             current_slide_idx=current_idx,
-            min_confidence=0.35,
+            min_confidence=0.48,
             forward_only=forward_only,
         )
         if not match:
@@ -2092,6 +2100,7 @@ class SlideCompanionWidget(QWidget):
 
         if self.auto_advance_switch.isChecked():
             # Full Auto-Advance
+            self._recent_speech_segments.clear()
             self.slide_list.setCurrentRow(matched_idx)
             self.mark_current_slide_here(custom_timestamp=timestamp)
             deck_pfx = f"[{deck.name}] " if len(self._decks) > 1 else ""
@@ -2115,6 +2124,7 @@ class SlideCompanionWidget(QWidget):
         idx = self._suggested_slide_idx
         ts = self._suggested_timestamp
         self._dismiss_suggestion()
+        self._recent_speech_segments.clear()
         deck = self.current_deck
         if deck and 0 <= idx < len(deck.pixmaps):
             self.slide_list.setCurrentRow(idx)

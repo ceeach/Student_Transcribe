@@ -286,10 +286,6 @@ class TranscribeInterface(QWidget):
     def _activate_pivot_subpage(self, widget: QWidget, route_key: str):
         self.stacked_widget.setCurrentWidget(widget)
         self.set_full_screen_slides_mode(route_key in ("slidesPage", "videoPage", "subjectsPage", "historyPage"))
-        if route_key == "subjectsPage" and hasattr(self, "subjects_hub"):
-            self.subjects_hub.refresh()
-        elif route_key == "historyPage" and hasattr(self, "recordings_list"):
-            self.recordings_list.refresh()
 
     def set_full_screen_slides_mode(self, enabled: bool):
         """Expand Class Slides or Video Inbox to take 100% of the UI screen by hiding bottom cards."""
@@ -487,7 +483,6 @@ class TranscribeInterface(QWidget):
 
         self.subject_combo = ComboBox(self)
         self.subject_combo.setMinimumWidth(160)
-        self._populate_subject_dropdown()
         self.subject_combo.currentIndexChanged.connect(self._on_subject_changed)
         row_academic.addWidget(self.subject_combo)
 
@@ -505,6 +500,8 @@ class TranscribeInterface(QWidget):
         self.modules_input.setPlaceholderText("e.g. Module 1: Intro, Module 2: Systems")
         self.modules_input.setClearButtonEnabled(True)
         row_academic.addWidget(self.modules_input, 1)
+
+        self._populate_subject_dropdown()
 
         self.add_subject_btn = TransparentPushButton("+ Subject", self)
         self.add_subject_btn.setIcon(FIF.ADD)
@@ -726,7 +723,7 @@ class TranscribeInterface(QWidget):
         if not subj_name:
             return
         subj = self.subject_manager.get_subject(subj_name)
-        if subj and subj.modules and not self.modules_input.text().strip():
+        if subj and subj.modules and hasattr(self, "modules_input") and not self.modules_input.text().strip():
             self.modules_input.setPlaceholderText(f"Available: {', '.join(subj.modules[:3])}...")
 
     def _prompt_add_subject(self):
@@ -834,7 +831,7 @@ class MainWindow(FluentWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Student Transcribe v1.4.3")
+        self.setWindowTitle("Student Transcribe v1.4.4")
         self.resize(960, 820)
         self.setMinimumSize(840, 520)
 
@@ -2902,7 +2899,7 @@ def main():
     if sys.platform == "win32":
         try:
             import ctypes
-            myappid = "studenttranscribe.app.1.4.3"
+            myappid = "studenttranscribe.app.1.4.4"
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
         except Exception:
             pass

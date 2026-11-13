@@ -95,6 +95,8 @@ class SubjectsHubWidget(QWidget):
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self._current_subject: Optional[str] = None  # None means "All Subjects"
+        self._duration_cache: Dict[str, tuple] = {}
+        self._last_scan_sig = None
         self._subjects_data: Dict[str, Dict[str, List[Dict[str, Any]]]] = {}
         self._all_data: Dict[str, List[Dict[str, Any]]] = {
             "recordings": [],
@@ -128,7 +130,7 @@ class SubjectsHubWidget(QWidget):
         self.refresh_subjs_btn = TransparentPushButton(self)
         self.refresh_subjs_btn.setIcon(FIF.SYNC)
         self.refresh_subjs_btn.setToolTip("Refresh subjects and media")
-        self.refresh_subjs_btn.clicked.connect(self.refresh)
+        self.refresh_subjs_btn.clicked.connect(lambda: self.refresh(force=True))
         left_header.addWidget(self.refresh_subjs_btn)
         left_layout.addLayout(left_header)
 
@@ -509,11 +511,29 @@ class SubjectsHubWidget(QWidget):
     # =============================================================
     # DATA SCANNING & REFRESH LOGIC
     # =============================================================
-    def refresh(self):
+    def refresh(self, force: bool = False):
         """Scan all local directories and aggregate assets by course subject."""
         RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
         TRANSCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
         VIDEO_INBOX_DIR.mkdir(parents=True, exist_ok=True)
+
+        # Fast file-signature check to make tab switching instantaneous when nothing changed
+        try:
+            rec_stats = [(f.name, f.stat().st_mtime) for f in RECORDINGS_DIR.iterdir() if f.is_file()]
+            tr_stats = [(f.name, f.stat().st_mtime) for f in TRANSCRIPTS_DIR.iterdir() if f.is_file()]
+            vid_stats = [(f.name, f.stat().st_mtime) for f in VIDEO_INBOX_DIR.iterdir() if f.is_file()]
+            subj_mtime = subject_manager.storage_path.stat().st_mtime if subject_manager.storage_path.exists() else 0.0
+            current_sig = (
+                len(rec_stats), sum(s[1] for s in rec_stats),
+                len(tr_stats), sum(s[1] for s in tr_stats),
+                len(vid_stats), sum(s[1] for s in vid_stats),
+                subj_mtime,
+            )
+            if not force and self._last_scan_sig == current_sig:
+                return
+            self._last_scan_sig = current_sig
+        except Exception:
+            pass
 
         subjects = subject_manager.get_all_subjects()
         subject_names = [s.name for s in subjects]
@@ -535,6 +555,7 @@ class SubjectsHubWidget(QWidget):
         # 1. Scan Transcripts
         transcript_files = list(TRANSCRIPTS_DIR.glob("*.json"))
         recorded_audio_linked = set()
+        audio_to_academic: Dict[str, Dict[str, Any]] = {}
 
         for tpath in transcript_files:
             try:
@@ -553,7 +574,18 @@ class SubjectsHubWidget(QWidget):
                 recorded_audio_linked.add(Path(audio_f).name.lower())
             recorded_audio_linked.add(fname.lower())
 
-            dur = format_duration(float(tdata.get("duration_seconds", 0.0)))
+            dur_secs = float(tdata.get("duration_seconds", 0.0))
+            dur = format_duration(dur_secs)
+            academic_meta = {
+                "subject": subj,
+                "modules": tdata.get("modules", []),
+                "session_type": tdata.get("session_type", "Lecture"),
+                "duration_seconds": dur_secs,
+            }
+            if audio_f:
+                audio_to_academic[Path(audio_f).name.lower()] = academic_meta
+            audio_to_academic[fname.lower()] = academic_meta
+            audio_to_academic[tpath.stem.lower()] = academic_meta
             dt_raw = tdata.get("created_at", "")
             try:
                 dt_str = datetime.fromisoformat(dt_raw).strftime("%Y-%m-%d %H:%M")
@@ -604,16 +636,38 @@ class SubjectsHubWidget(QWidget):
                     dt_str = datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M")
                     sz_str = format_file_size(stat.st_size)
 
+                    academic = audio_to_academic.get(apath.name.lower()) or audio_to_academic.get(apath.stem.lower())
+                    if not academic:
+                        meta_path = apath.parent / f"{apath.stem}.meta.json"
+                        if meta_path.exists():
+                            try:
+                                with open(meta_path, "r", encoding="utf-8") as mf:
+                                    mdata = json.load(mf)
+                                academic = {
+                                    "subject": mdata.get("subject", ""),
+                                    "session_type": mdata.get("session_type", "Lecture"),
+                                    "modules": list(mdata.get("modules", [])),
+                                    "duration_seconds": 0.0,
+                                }
+                            except Exception:
+                                academic = {}
+                        else:
+                            academic = {}
+
                     dur_str = "--:--"
-                    if sf is not None and apath.suffix.lower() == ".wav":
+                    if academic.get("duration_seconds", 0.0) > 0:
+                        dur_str = format_duration(academic["duration_seconds"])
+                    elif apath.name in self._duration_cache and self._duration_cache[apath.name][0] == stat.st_mtime:
+                        dur_str = self._duration_cache[apath.name][1]
+                    elif sf is not None and apath.suffix.lower() == ".wav":
                         try:
                             info = sf.info(str(apath))
                             if info.duration:
                                 dur_str = format_duration(info.duration)
+                                self._duration_cache[apath.name] = (stat.st_mtime, dur_str)
                         except Exception:
                             pass
 
-                    academic = get_recording_academic_info(str(apath))
                     subj = academic.get("subject") or "General / Other"
                     if subj not in self._subjects_data:
                         self._subjects_data[subj] = {"recordings": [], "videos": [], "transcripts": [], "summaries": []}
@@ -722,8 +776,8 @@ class SubjectsHubWidget(QWidget):
             if curr_selection and s_name == curr_selection:
                 target_item = item
 
-        self.subject_list.blockSignals(False)
         self.subject_list.setCurrentItem(target_item)
+        self.subject_list.blockSignals(False)
 
     def _filter_subjects_list(self):
         self._populate_subjects_list()

@@ -281,7 +281,8 @@ class TranscribeInterface(QWidget):
             icon=icon,
         )
         if item:
-            setFont(item, 13)
+            setFont(item, 12)
+            item._orig_icon = icon
 
     def _activate_pivot_subpage(self, widget: QWidget, route_key: str):
         self.stacked_widget.setCurrentWidget(widget)
@@ -306,8 +307,8 @@ class TranscribeInterface(QWidget):
             if hasattr(self, "output_card"):
                 self.main_layout.setStretchFactor(self.output_card, 0)
         else:
-            self.main_layout.setContentsMargins(20, 16, 20, 16)
-            self.main_layout.setSpacing(12)
+            self.main_layout.setContentsMargins(16, 10, 16, 12)
+            self.main_layout.setSpacing(8)
             self.main_layout.setStretchFactor(self.stacked_widget, 0)
             if hasattr(self, "output_card"):
                 self.main_layout.setStretchFactor(self.output_card, 1)
@@ -315,13 +316,60 @@ class TranscribeInterface(QWidget):
     def _create_record_page(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
-        layout.setContentsMargins(0, 12, 0, 0)
-        layout.setSpacing(12)
+        layout.setContentsMargins(0, 4, 0, 0)
+        layout.setSpacing(0)
 
-        # Audio source and Language selector
+        # Unified Studio Recording Card
+        meter_card = CardWidget(self)
+        meter_card_layout = QVBoxLayout(meter_card)
+        meter_card_layout.setContentsMargins(16, 12, 16, 12)
+        meter_card_layout.setSpacing(10)
+
+        # Row 1: Timer + Status + Transport Controls
+        timer_row = QHBoxLayout()
+        timer_row.setSpacing(12)
+        self.timer_label = TitleLabel("00:00:00", self)
+        self.timer_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        font = QFont("Cascadia Code", 22)
+        font.setWeight(QFont.Weight.Bold)
+        self.timer_label.setFont(font)
+
+        self.record_status_badge = CaptionLabel("READY", self)
+
+        timer_row.addWidget(self.timer_label)
+        timer_row.addWidget(self.record_status_badge)
+        timer_row.addStretch(1)
+
+        self.record_btn = PrimaryPushButton("Start Recording", self)
+        self.record_btn.setIcon(FIF.MICROPHONE)
+        self.record_btn.setFixedHeight(34)
+        self.record_btn.setMinimumWidth(130)
+
+        self.pause_btn = PushButton("Pause", self)
+        self.pause_btn.setIcon(FIF.PAUSE)
+        self.pause_btn.setFixedHeight(34)
+        self.pause_btn.setMinimumWidth(78)
+        self.pause_btn.setEnabled(False)
+
+        self.stop_btn = PushButton("Stop", self)
+        self.stop_btn.setIcon(FIF.CLOSE)
+        self.stop_btn.setFixedHeight(34)
+        self.stop_btn.setMinimumWidth(70)
+        self.stop_btn.setEnabled(False)
+
+        timer_row.addWidget(self.record_btn)
+        timer_row.addWidget(self.pause_btn)
+        timer_row.addWidget(self.stop_btn)
+        meter_card_layout.addLayout(timer_row)
+
+        # Row 2: Sleek thin Audio Meter
+        self.audio_meter = AudioMeter(self)
+        meter_card_layout.addWidget(self.audio_meter)
+
+        # Row 3: Audio Source, Language & Recordings Folder
         source_row = QHBoxLayout()
-        source_row.setSpacing(12)
-        source_label = CaptionLabel("Audio Source:", self)
+        source_row.setSpacing(8)
+        source_label = CaptionLabel("Source:", self)
         source_row.addWidget(source_label)
 
         self.source_mode_combo = ComboBox(self)
@@ -370,74 +418,24 @@ class TranscribeInterface(QWidget):
                 self.language_combo.setCurrentIndex(i)
                 break
         source_row.addWidget(self.language_combo, 2)
-        layout.addLayout(source_row)
 
-        # Timer and VU meter card
-        meter_card = CardWidget(self)
-        meter_card_layout = QVBoxLayout(meter_card)
-        meter_card_layout.setContentsMargins(16, 12, 16, 12)
-        meter_card_layout.setSpacing(8)
-
-        timer_row = QHBoxLayout()
-        self.timer_label = TitleLabel("00:00:00", self)
-        self.timer_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        font = QFont("Cascadia Code", 28)
-        font.setWeight(QFont.Weight.Bold)
-        self.timer_label.setFont(font)
-
-        self.record_status_badge = CaptionLabel("READY TO RECORD", self)
-
-        timer_row.addWidget(self.timer_label, 1)
-        timer_row.addWidget(self.record_status_badge)
-        meter_card_layout.addLayout(timer_row)
-
-        # Meter header
-        self.meter_level_label = CaptionLabel("Mic Level:", self)
-        meter_card_layout.addWidget(self.meter_level_label)
-
-        self.audio_meter = AudioMeter(self)
-        meter_card_layout.addWidget(self.audio_meter)
-        layout.addWidget(meter_card)
-
-        # Control buttons
-        btn_row = QHBoxLayout()
-        btn_row.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        btn_row.setSpacing(12)
-
-        self.record_btn = PrimaryPushButton("Start Recording", self)
-        self.record_btn.setIcon(FIF.MICROPHONE)
-        self.record_btn.setFixedSize(180, 44)
-
-        self.pause_btn = PushButton("Pause", self)
-        self.pause_btn.setIcon(FIF.PAUSE)
-        self.pause_btn.setFixedSize(130, 44)
-        self.pause_btn.setEnabled(False)
-
-        self.stop_btn = PushButton("Stop", self)
-        self.stop_btn.setIcon(FIF.CLOSE)
-        self.stop_btn.setFixedSize(130, 44)
-        self.stop_btn.setEnabled(False)
-
-        btn_row.addWidget(self.record_btn)
-        btn_row.addWidget(self.pause_btn)
-        btn_row.addWidget(self.stop_btn)
-        layout.addLayout(btn_row)
-
-        # Saved file info
-        saved_row = QHBoxLayout()
         self.saved_file_label = CaptionLabel("", self)
-        self.open_folder_btn = TransparentPushButton("Open Recordings Folder", self)
-        self.open_folder_btn.setIcon(FIF.FOLDER)
-        saved_row.addWidget(self.saved_file_label, 1)
-        saved_row.addWidget(self.open_folder_btn)
-        layout.addLayout(saved_row)
+        self.saved_file_label.setVisible(False)
+        source_row.addWidget(self.saved_file_label)
 
+        self.open_folder_btn = TransparentToolButton(FIF.FOLDER, self)
+        self.open_folder_btn.setFixedSize(30, 30)
+        self.open_folder_btn.setToolTip("Open Recordings Folder")
+        source_row.addWidget(self.open_folder_btn)
+        meter_card_layout.addLayout(source_row)
+
+        layout.addWidget(meter_card)
         return page
 
     def _create_upload_page(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
-        layout.setContentsMargins(0, 12, 0, 0)
+        layout.setContentsMargins(0, 6, 0, 0)
         self.drop_zone = DropZoneWidget(self)
         layout.addWidget(self.drop_zone)
         return page
@@ -445,82 +443,84 @@ class TranscribeInterface(QWidget):
     def _create_metadata_card(self, parent_layout):
         self.meta_card = CardWidget(self)
         meta_layout = QVBoxLayout(self.meta_card)
-        meta_layout.setContentsMargins(16, 14, 16, 14)
-        meta_layout.setSpacing(10)
+        meta_layout.setContentsMargins(14, 10, 14, 10)
+        meta_layout.setSpacing(8)
 
-        meta_header = StrongBodyLabel("Session Details", self)
-        meta_layout.addWidget(meta_header)
+        # Primary Session Bar (Title + Subject + Collapsible Details Toggle)
+        row_primary = QHBoxLayout()
+        row_primary.setSpacing(8)
 
-        # Title row
-        row2 = QHBoxLayout()
-        row2.setSpacing(8)
-        self.title_label = BodyLabel("Session Title:", self)
-        row2.addWidget(self.title_label)
+        self.title_label = CaptionLabel("Title:", self)
+        row_primary.addWidget(self.title_label)
         self.title_input = LineEdit(self)
         default_title = f"Transcript - {datetime.now().strftime('%Y-%m-%d %H:%M')}"
         self.title_input.setText(default_title)
-        self.title_input.setPlaceholderText("Meeting / Audio Note Title")
-        row2.addWidget(self.title_input, 1)
-        meta_layout.addLayout(row2)
+        self.title_input.setPlaceholderText("Lecture / Meeting Title")
+        row_primary.addWidget(self.title_input, 3)
 
-        # Tags row
-        row3 = QHBoxLayout()
-        row3.setSpacing(8)
-        self.tags_label = BodyLabel("Tags / Category:", self)
-        row3.addWidget(self.tags_label)
-        self.tags_input = LineEdit(self)
-        self.tags_input.setText(config_manager.get("default_tags", "Meeting, Audio"))
-        self.tags_input.setPlaceholderText("Comma-separated tags (e.g., Meeting, Memo, Interview)")
-        row3.addWidget(self.tags_input, 1)
-        meta_layout.addLayout(row3)
-
-        # Academic Subject, Session Type & Modules Covered row
-        row_academic = QHBoxLayout()
-        row_academic.setSpacing(8)
-
-        self.subject_label = BodyLabel("Subject:", self)
-        row_academic.addWidget(self.subject_label)
-
+        self.subject_label = CaptionLabel("Subject:", self)
+        row_primary.addWidget(self.subject_label)
         self.subject_combo = ComboBox(self)
         self.subject_combo.setMinimumWidth(160)
         self.subject_combo.currentIndexChanged.connect(self._on_subject_changed)
-        row_academic.addWidget(self.subject_combo)
+        row_primary.addWidget(self.subject_combo, 2)
 
-        self.session_type_label = BodyLabel("Type:", self)
+        self.add_subject_btn = TransparentToolButton(FIF.ADD, self)
+        self.add_subject_btn.setFixedSize(30, 30)
+        self.add_subject_btn.setToolTip("Add a new academic course or subject")
+        self.add_subject_btn.clicked.connect(self._prompt_add_subject)
+        row_primary.addWidget(self.add_subject_btn)
+
+        self.manage_subject_btn = TransparentToolButton(FIF.SETTING, self)
+        self.manage_subject_btn.setFixedSize(30, 30)
+        self.manage_subject_btn.setToolTip("Manage, edit, rename, or delete academic subjects and course modules")
+        self.manage_subject_btn.clicked.connect(self._open_subject_manager)
+        row_primary.addWidget(self.manage_subject_btn)
+
+        self.meta_details_toggle = PushButton("Details ▾", self)
+        self.meta_details_toggle.setCheckable(True)
+        self.meta_details_toggle.setChecked(False)
+        self.meta_details_toggle.setToolTip("Show or hide Tags, Session Type, Modules, and Slides OCR / Course Jargon")
+        row_primary.addWidget(self.meta_details_toggle)
+
+        meta_layout.addLayout(row_primary)
+
+        # Collapsible Secondary Details Drawer (Tags, Type, Modules, Course Jargon & Slides OCR)
+        self.meta_details_drawer = QWidget(self)
+        drawer_layout = QVBoxLayout(self.meta_details_drawer)
+        drawer_layout.setContentsMargins(0, 2, 0, 0)
+        drawer_layout.setSpacing(8)
+
+        row_academic = QHBoxLayout()
+        row_academic.setSpacing(8)
+
+        self.tags_label = CaptionLabel("Tags:", self)
+        row_academic.addWidget(self.tags_label)
+        self.tags_input = LineEdit(self)
+        self.tags_input.setText(config_manager.get("default_tags", "Meeting, Audio"))
+        self.tags_input.setPlaceholderText("Comma-separated tags")
+        row_academic.addWidget(self.tags_input, 2)
+
+        self.session_type_label = CaptionLabel("Type:", self)
         row_academic.addWidget(self.session_type_label)
-
         self.session_type_combo = ComboBox(self)
         self.session_type_combo.addItems(["📖 Theory Lecture", "✏️ Exercise / Problem Set", "🔬 Lab / Workshop"])
-        row_academic.addWidget(self.session_type_combo)
+        row_academic.addWidget(self.session_type_combo, 1)
 
-        self.modules_label = BodyLabel("Modules:", self)
+        self.modules_label = CaptionLabel("Modules:", self)
         row_academic.addWidget(self.modules_label)
-
         self.modules_input = LineEdit(self)
-        self.modules_input.setPlaceholderText("e.g. Module 1: Intro, Module 2: Systems")
+        self.modules_input.setPlaceholderText("e.g. Module 1, Ch. 3")
         self.modules_input.setClearButtonEnabled(True)
-        row_academic.addWidget(self.modules_input, 1)
+        row_academic.addWidget(self.modules_input, 2)
+
+        drawer_layout.addLayout(row_academic)
 
         self._populate_subject_dropdown()
 
-        self.add_subject_btn = TransparentPushButton("+ Subject", self)
-        self.add_subject_btn.setIcon(FIF.ADD)
-        self.add_subject_btn.setToolTip("Add a new academic course or subject")
-        self.add_subject_btn.clicked.connect(self._prompt_add_subject)
-        row_academic.addWidget(self.add_subject_btn)
-
-        self.manage_subject_btn = TransparentPushButton("Manage", self)
-        self.manage_subject_btn.setIcon(FIF.SETTING)
-        self.manage_subject_btn.setToolTip("Manage, edit, rename, or delete academic subjects and course modules")
-        self.manage_subject_btn.clicked.connect(self._open_subject_manager)
-        row_academic.addWidget(self.manage_subject_btn)
-
-        meta_layout.addLayout(row_academic)
-
-        # Slide OCR / Course Jargon row (biases Whisper initial_prompt & hotwords)
         row4 = QHBoxLayout()
         row4.setSpacing(8)
-        self.jargon_label = BodyLabel("Course Jargon:", self)
+        self.jargon_label = CaptionLabel("Jargon:", self)
         self.jargon_label.setToolTip(
             "Domain vocabulary, acronyms, formulas, and proper nouns passed directly to Whisper's\n"
             "initial_prompt & hotwords so technical terms are spelled accurately."
@@ -528,13 +528,11 @@ class TranscribeInterface(QWidget):
         row4.addWidget(self.jargon_label)
 
         self.jargon_input = LineEdit(self)
-        self.jargon_input.setPlaceholderText(
-            "Import lecture slides (.pdf, .pptx, images) via OCR or type custom terms (e.g., Eigenvalue, Navier-Stokes, NADH)..."
-        )
+        self.jargon_input.setPlaceholderText("Slide OCR terms or custom vocabulary...")
         self.jargon_input.setClearButtonEnabled(True)
         row4.addWidget(self.jargon_input, 1)
 
-        self.import_slides_btn = PushButton("Import Slides / OCR...", self)
+        self.import_slides_btn = PushButton("Slides OCR...", self)
         self.import_slides_btn.setIcon(FIF.ALBUM)
         self.import_slides_btn.setToolTip(
             "Extract course jargon and technical vocabulary from PDF slides, PowerPoint (.pptx),\n"
@@ -542,40 +540,49 @@ class TranscribeInterface(QWidget):
         )
         row4.addWidget(self.import_slides_btn)
 
-        self.paste_slide_btn = TransparentPushButton("Paste Slide", self)
-        self.paste_slide_btn.setIcon(FIF.PASTE)
-        self.paste_slide_btn.setToolTip("Run OCR on a slide screenshot copied to your clipboard")
+        self.paste_slide_btn = TransparentToolButton(FIF.PASTE, self)
+        self.paste_slide_btn.setFixedSize(30, 30)
+        self.paste_slide_btn.setToolTip("Paste slide screenshot from clipboard for OCR")
         row4.addWidget(self.paste_slide_btn)
 
-        meta_layout.addLayout(row4)
+        drawer_layout.addLayout(row4)
 
+        self.meta_details_drawer.setVisible(False)
+        def _toggle_meta_drawer(checked: bool):
+            self.meta_details_drawer.setVisible(checked)
+            self.meta_details_toggle.setText("Details ▴" if checked else "Details ▾")
+        self.meta_details_toggle.toggled.connect(_toggle_meta_drawer)
+
+        meta_layout.addWidget(self.meta_details_drawer)
         parent_layout.addWidget(self.meta_card)
 
     def _create_transcript_card(self, parent_layout):
         self.output_card = CardWidget(self)
         output_layout = QVBoxLayout(self.output_card)
-        output_layout.setContentsMargins(14, 12, 14, 12)
+        output_layout.setContentsMargins(14, 10, 14, 10)
         output_layout.setSpacing(8)
 
-        # Header with view toggle and toolbar
+        # Header with view toggle and compact toolbar
         output_header = QHBoxLayout()
+        output_header.setSpacing(6)
         output_header_left = QVBoxLayout()
-        output_header_left.setSpacing(2)
-        output_header_left.addWidget(StrongBodyLabel("Live Transcript & AI Study Guide", self))
-        self.stats_label = CaptionLabel("0 segments | 0 words  •  Tip: Click any [timestamp] to play audio or [Speaker] badge to rename", self)
+        output_header_left.setSpacing(1)
+        output_header_left.addWidget(StrongBodyLabel("Transcript", self))
+        self.stats_label = CaptionLabel("0 segments • 0 words", self)
+        self.stats_label.setToolTip("Click any [timestamp] to play audio or [Speaker] badge to rename")
         output_header_left.addWidget(self.stats_label)
         output_header.addLayout(output_header_left, 1)
 
-        # View Switcher (Transcript vs Study Guide vs Ask Lecture AI)
+        # View Switcher (Transcript vs Study Guide vs Ask AI)
         self.view_transcript_btn = PushButton("Transcript", self)
         self.view_transcript_btn.setIcon(FIF.DOCUMENT)
         self.view_transcript_btn.setCheckable(True)
         self.view_transcript_btn.setChecked(True)
-        self.view_study_btn = PushButton("AI Study Guide", self)
+        self.view_study_btn = PushButton("Notes", self)
         self.view_study_btn.setIcon(FIF.EDUCATION)
         self.view_study_btn.setCheckable(True)
         self.view_study_btn.setChecked(False)
-        self.view_chat_btn = PushButton("💬 Ask Lecture", self)
+        self.view_chat_btn = PushButton("Ask AI", self)
         self.view_chat_btn.setIcon(FIF.CHAT)
         self.view_chat_btn.setCheckable(True)
         self.view_chat_btn.setChecked(False)
@@ -611,27 +618,27 @@ class TranscribeInterface(QWidget):
         output_header.addWidget(self.view_study_btn)
         output_header.addWidget(self.view_chat_btn)
 
-        self.stop_audio_btn = PushButton("Stop Audio", self)
-        self.stop_audio_btn.setIcon(FIF.PAUSE)
+        self.stop_audio_btn = ToolButton(FIF.PAUSE, self)
+        self.stop_audio_btn.setFixedSize(32, 32)
         self.stop_audio_btn.setVisible(False)
         self.stop_audio_btn.setToolTip("Stop currently playing audio snippet")
         output_header.addWidget(self.stop_audio_btn)
 
-        self.rename_speaker_btn = PushButton("Rename Speaker", self)
-        self.rename_speaker_btn.setIcon(FIF.PEOPLE)
+        self.rename_speaker_btn = ToolButton(FIF.PEOPLE, self)
+        self.rename_speaker_btn.setFixedSize(32, 32)
         self.rename_speaker_btn.setEnabled(False)
         self.rename_speaker_btn.setToolTip("Rename a diarized speaker (e.g. 'Speaker 1' -> 'Prof. Smith') across the entire transcript")
         output_header.addWidget(self.rename_speaker_btn)
 
-        self.copy_btn = PushButton("Copy", self)
-        self.copy_btn.setIcon(FIF.COPY)
-        self.copy_btn.setFixedWidth(88)
+        self.copy_btn = ToolButton(FIF.COPY, self)
+        self.copy_btn.setFixedSize(32, 32)
+        self.copy_btn.setToolTip("Copy transcript or notes to clipboard")
         output_header.addWidget(self.copy_btn)
 
-        self.export_btn = PushButton("Export", self)
-        self.export_btn.setIcon(FIF.SAVE_AS)
-        self.export_btn.setFixedWidth(96)
+        self.export_btn = ToolButton(FIF.SAVE_AS, self)
+        self.export_btn.setFixedSize(32, 32)
         self.export_btn.setEnabled(False)
+        self.export_btn.setToolTip("Export transcript (.txt, .srt, .vtt, .md, .json)...")
         self.export_menu = RoundMenu(parent=self)
 
         from PyQt6.QtGui import QAction
@@ -663,15 +670,16 @@ class TranscribeInterface(QWidget):
         )
         output_header.addWidget(self.export_btn)
 
-        self.clear_btn = PushButton("Clear", self)
-        self.clear_btn.setIcon(FIF.DELETE)
-        self.clear_btn.setFixedWidth(80)
+        self.clear_btn = TransparentToolButton(FIF.DELETE, self)
+        self.clear_btn.setFixedSize(32, 32)
+        self.clear_btn.setToolTip("Clear transcript and notes")
         output_header.addWidget(self.clear_btn)
 
         output_layout.addLayout(output_header)
 
         # Stacked view: page 0 = transcript, page 1 = study notes
         self.preview_stack = QStackedWidget(self)
+        self.preview_stack.setMinimumHeight(130)
 
         self.output_text = ClickableTranscriptEdit(self)
         self.output_text.setReadOnly(True)
@@ -774,10 +782,9 @@ class TranscribeInterface(QWidget):
         self.action_bar_container = QWidget(self)
         action_layout = QHBoxLayout(self.action_bar_container)
         action_layout.setContentsMargins(0, 0, 0, 0)
-        action_layout.setSpacing(10)
+        action_layout.setSpacing(8)
 
         # Quick Model Selector
-        action_layout.addWidget(CaptionLabel("Model:", self))
         self.quick_model_combo = ComboBox(self)
         self.quick_model_combo.addItems(["tiny", "base", "small", "medium", "large-v3"])
         current_model = config_manager.get("whisper_model", "base")
@@ -787,38 +794,41 @@ class TranscribeInterface(QWidget):
         self.quick_model_combo.setToolTip("Select Whisper model size for transcription")
         action_layout.addWidget(self.quick_model_combo)
 
-        # Benchmark button
-        self.benchmark_btn = PushButton("Auto-Tune", self)
-        self.benchmark_btn.setIcon(FIF.SPEED_HIGH)
-        self.benchmark_btn.setToolTip("Benchmark hardware & auto-select optimal model and speed settings")
+        # Benchmark button (compact icon)
+        self.benchmark_btn = ToolButton(FIF.SPEED_HIGH, self)
+        self.benchmark_btn.setFixedSize(32, 32)
+        self.benchmark_btn.setToolTip("Auto-Tune: Benchmark hardware & select optimal model and speed settings")
         action_layout.addWidget(self.benchmark_btn)
 
         # Diarization toggle
-        self.diarize_cb = CheckBox("Diarize Speakers", self)
+        self.diarize_cb = CheckBox("Diarize", self)
         self.diarize_cb.setChecked(config_manager.get("enable_diarization", True))
         self.diarize_cb.setToolTip("Identify and label distinct speakers")
         action_layout.addWidget(self.diarize_cb)
 
-        self.transcribe_only_btn = PushButton("Transcribe Audio", self)
+        action_layout.addStretch(1)
+
+        self.transcribe_only_btn = PushButton("Transcribe", self)
         self.transcribe_only_btn.setIcon(FIF.PLAY)
+        self.transcribe_only_btn.setToolTip("Transcribe audio only")
         action_layout.addWidget(self.transcribe_only_btn)
 
-        self.compare_models_btn = PushButton("Compare Models...", self)
-        self.compare_models_btn.setIcon(FIF.CONSTRACT)
+        self.compare_models_btn = ToolButton(FIF.CONSTRACT, self)
+        self.compare_models_btn.setFixedSize(32, 32)
         self.compare_models_btn.setEnabled(False)
         self.compare_models_btn.setToolTip("Compare current transcript with a second model")
         action_layout.addWidget(self.compare_models_btn)
 
-        self.study_guide_btn = PushButton("Study Guide", self)
+        self.study_guide_btn = PushButton("Notes", self)
         self.study_guide_btn.setIcon(FIF.EDUCATION)
         self.study_guide_btn.setEnabled(False)
         self.study_guide_btn.setToolTip("Generate comprehensive lecture notes, key concepts, and active recall flashcards using Gemini or Ollama")
         action_layout.addWidget(self.study_guide_btn)
 
-        self.action_btn = PrimaryPushButton("✨ Transcribe & Generate Notes", self)
+        self.action_btn = PrimaryPushButton("Transcribe & Notes", self)
         self.action_btn.setIcon(FIF.DOCUMENT)
         self.action_btn.setToolTip("Transcribe audio and automatically generate comprehensive lecture notes and flashcards")
-        action_layout.addWidget(self.action_btn, 1)
+        action_layout.addWidget(self.action_btn)
 
         parent_layout.addWidget(self.action_bar_container)
 
@@ -831,9 +841,9 @@ class MainWindow(FluentWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Student Transcribe v1.4.7")
-        self.resize(960, 820)
-        self.setMinimumSize(840, 520)
+        self.setWindowTitle("Student Transcribe v1.4.8")
+        self.resize(980, 700)
+        self.setMinimumSize(640, 520)
 
         # Set application icon
         self._icon_path = get_icon_path()
@@ -892,6 +902,19 @@ class MainWindow(FluentWindow):
         if config_manager.get("auto_watch_video_folder", True):
             self.video_watcher.start_watching()
 
+        # Apply cohesive dark theme palette
+        from PyQt6.QtGui import QColor
+        from ui.theme import ACCENT_HEX, BG_BASE, get_app_stylesheet
+        setTheme(Theme.DARK)
+        setThemeColor(ACCENT_HEX)
+        if hasattr(self, "setMicaEffectEnabled"):
+            self.setMicaEffectEnabled(False)
+        if hasattr(self, "setCustomBackgroundColor"):
+            self.setCustomBackgroundColor(QColor(BG_BASE), QColor(BG_BASE))
+        app_inst = QApplication.instance()
+        if app_inst is not None:
+            app_inst.setStyleSheet(get_app_stylesheet())
+
         # Create interface pages
         self._init_navigation()
         self._connect_signals()
@@ -938,10 +961,12 @@ class MainWindow(FluentWindow):
         while self.titleBar.hBoxLayout.count() > 0:
             self.titleBar.hBoxLayout.takeAt(0)
 
-        self.titleBar.hBoxLayout.addSpacing(16)
+        self.titleBar.hBoxLayout.addSpacing(8)
         self.titleBar.hBoxLayout.addStretch(1)
         self.titleBar.hBoxLayout.addWidget(self.transcribe_page.pivot, 0, Qt.AlignmentFlag.AlignCenter)
         self.titleBar.hBoxLayout.addStretch(1)
+        if hasattr(self.transcribe_page.pivot, "hBoxLayout"):
+            self.transcribe_page.pivot.hBoxLayout.setSpacing(0)
         self.titleBar.hBoxLayout.addWidget(self.top_report_btn, 0, Qt.AlignmentFlag.AlignVCenter)
         self.titleBar.hBoxLayout.addSpacing(4)
         self.titleBar.hBoxLayout.addWidget(self.top_settings_btn, 0, Qt.AlignmentFlag.AlignVCenter)
@@ -990,8 +1015,18 @@ class MainWindow(FluentWindow):
             if hasattr(self, "top_settings_btn"):
                 self.top_settings_btn.raise_()
             if hasattr(self, "transcribe_page") and hasattr(self.transcribe_page, "pivot"):
-                available_width = max(320, self.width() - 240)
+                available_width = max(320, self.width() - 210)
                 self.transcribe_page.pivot.setMaximumWidth(available_width)
+                is_narrow = self.width() < 800
+                if self.titleBar.hBoxLayout.count() >= 4:
+                    self.titleBar.hBoxLayout.setStretch(1, 0 if is_narrow else 1)
+                for route_key in ("recordPage", "uploadPage", "videoPage", "slidesPage", "subjectsPage", "historyPage"):
+                    item = self.transcribe_page.pivot.items.get(route_key)
+                    if item is not None:
+                        item.setMaximumWidth(16777215)
+                        orig = getattr(item, "_orig_icon", None)
+                        if orig is not None:
+                            item.setIcon(QIcon() if is_narrow else orig)
 
     def _open_class_slides_view(self):
         """Switch directly to the full-screen Class Slides & Annotate view."""
@@ -1327,8 +1362,6 @@ class MainWindow(FluentWindow):
 
         if route_key == "slidesPage":
             self._tp.stacked_widget.setCurrentWidget(self._tp.slide_companion)
-            if self.isVisible() and not self.isMaximized() and not self.isFullScreen():
-                self.showMaximized()
         elif route_key == "recordPage":
             self._tp.stacked_widget.setCurrentWidget(self._tp.record_page)
             self._audio_source_type = "recorded"
@@ -2899,7 +2932,7 @@ def main():
     if sys.platform == "win32":
         try:
             import ctypes
-            myappid = "studenttranscribe.app.1.4.7"
+            myappid = "studenttranscribe.app.1.4.8"
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
         except Exception:
             pass
@@ -2909,15 +2942,16 @@ def main():
 
     app = QApplication(sys.argv)
 
-    # Set Fluent Design dark theme with custom accent color
+    # Set Fluent Design dark theme with cohesive indigo accent color & stylesheet
+    from ui.theme import ACCENT_HEX, get_app_stylesheet
     setTheme(Theme.DARK)
-    setThemeColor("#0284c7")  # Sky blue accent
+    setThemeColor(ACCENT_HEX)
 
     icon_path = get_icon_path()
     if icon_path:
         app.setWindowIcon(QIcon(icon_path))
 
-    # No custom QSS — fluent theme handles everything
+    app.setStyleSheet(get_app_stylesheet())
     window = MainWindow()
     window.show()
     if icon_path:

@@ -83,7 +83,7 @@ class VideoTabWidget(QWidget):
 
         desc = BodyLabel(
             "Drop or place video lecture files (.mp4, .mkv, .mov, .avi, .webm) into your Video Inbox folder.\n"
-            "NotionTranscribe extracts speech audio, safely deletes the large video file to save disk space, "
+            "Student Transcribe extracts speech audio, safely deletes the large video file to save disk space, "
             "and automatically initiates transcription.",
             banner,
         )

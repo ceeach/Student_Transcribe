@@ -41,10 +41,12 @@ from qfluentwidgets import (
     MessageBoxBase,
     PrimaryPushButton,
     PushButton,
+    StrongBodyLabel,
     TransparentPushButton,
     SubtitleLabel,
     TableWidget,
     TextEdit,
+    ToolButton,
 )
 
 from audio_recorder import RECORDINGS_DIR
@@ -101,31 +103,34 @@ class RecordingsListWidget(QWidget):
 
         # Top Toolbar
         top_bar = QHBoxLayout()
-        title_label = SubtitleLabel("Recorded Audio Archive & History", self)
+        top_bar.setSpacing(8)
+        title_label = StrongBodyLabel("Archive & History", self)
         top_bar.addWidget(title_label)
 
         self.search_input = LineEdit(self)
-        self.search_input.setPlaceholderText("Search across filenames, transcripts & notes...")
+        self.search_input.setPlaceholderText("Search filenames, transcripts & notes...")
         self.search_input.setClearButtonEnabled(True)
         self.search_input.textChanged.connect(self._on_search_changed)
         top_bar.addWidget(self.search_input, 1)
 
-        self.view_logs_btn = PushButton("View App Logs", self)
+        self.view_logs_btn = PushButton("Logs", self)
         self.view_logs_btn.setIcon(FIF.DOCUMENT)
         self.view_logs_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.view_logs_btn.setToolTip("Open diagnostic log file (useful for troubleshooting crashes or errors)")
         self.view_logs_btn.clicked.connect(self._open_logs)
         top_bar.addWidget(self.view_logs_btn)
 
-        self.refresh_btn = PushButton("Refresh", self)
-        self.refresh_btn.setIcon(FIF.SYNC)
+        self.refresh_btn = ToolButton(FIF.SYNC, self)
+        self.refresh_btn.setFixedSize(32, 32)
         self.refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.refresh_btn.setToolTip("Refresh recordings list")
         self.refresh_btn.clicked.connect(self.refresh)
         top_bar.addWidget(self.refresh_btn)
 
-        self.open_folder_btn = PushButton("Open Folder", self)
-        self.open_folder_btn.setIcon(FIF.FOLDER)
+        self.open_folder_btn = ToolButton(FIF.FOLDER, self)
+        self.open_folder_btn.setFixedSize(32, 32)
         self.open_folder_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.open_folder_btn.setToolTip("Open Recordings Folder")
         self.open_folder_btn.clicked.connect(self._open_folder)
         top_bar.addWidget(self.open_folder_btn)
 
@@ -168,10 +173,11 @@ class RecordingsListWidget(QWidget):
             "Recording Name", "Subject", "Type & Modules", "Date Recorded", "Duration", "File Size", "Transcript Status", "Notes Preview"
         ])
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
-        self.table.horizontalHeader().resizeSection(0, 160)
-        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        self.table.horizontalHeader().resizeSection(0, 165)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
+        self.table.horizontalHeader().resizeSection(1, 130)
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
-        self.table.horizontalHeader().resizeSection(2, 160)
+        self.table.horizontalHeader().resizeSection(2, 120)
         self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
@@ -197,7 +203,7 @@ class RecordingsListWidget(QWidget):
         notes_icon = IconWidget(FIF.QUICK_NOTE, self)
         notes_icon.setFixedSize(18, 18)
         notes_header.addWidget(notes_icon)
-        notes_header_title = SubtitleLabel("Recording Notes", self)
+        notes_header_title = StrongBodyLabel("Notes", self)
         notes_header.addWidget(notes_header_title, 1)
 
         self.save_notes_btn = PushButton("Save", self)
@@ -225,37 +231,44 @@ class RecordingsListWidget(QWidget):
 
         splitter.addWidget(self.notes_card)
 
-        # 60% table, 40% notes panel
-        splitter.setSizes([600, 360])
+        # 65% table, 35% notes panel with sensible stretch factors
+        splitter.setStretchFactor(0, 2)
+        splitter.setStretchFactor(1, 1)
+        splitter.setSizes([460, 210])
+        self.notes_card.setMinimumWidth(180)
         layout.addWidget(splitter, 1)
 
         # Bottom Action Bar
         bottom_bar = QHBoxLayout()
-        self.count_label = CaptionLabel("0 recordings found", self)
+        bottom_bar.setSpacing(6)
+        self.count_label = CaptionLabel("0 recordings", self)
         bottom_bar.addWidget(self.count_label, 1)
 
-        self.play_btn = PushButton("Play Audio", self)
+        self.play_btn = PushButton("Play", self)
         self.play_btn.setIcon(FIF.PLAY)
         self.play_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.play_btn.setEnabled(False)
+        self.play_btn.setToolTip("Play selected recording")
         self.play_btn.clicked.connect(self._play_selected)
         bottom_bar.addWidget(self.play_btn)
 
-        self.view_transcript_btn = PushButton("View Text (.txt)", self)
+        self.view_transcript_btn = PushButton("Text", self)
         self.view_transcript_btn.setIcon(FIF.DOCUMENT)
         self.view_transcript_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.view_transcript_btn.setEnabled(False)
+        self.view_transcript_btn.setToolTip("View saved transcript (.txt)")
         self.view_transcript_btn.clicked.connect(self._view_transcript)
         bottom_bar.addWidget(self.view_transcript_btn)
 
-        self.delete_btn = PushButton("Delete", self)
-        self.delete_btn.setIcon(FIF.DELETE)
+        self.delete_btn = ToolButton(FIF.DELETE, self)
+        self.delete_btn.setFixedSize(32, 32)
         self.delete_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.delete_btn.setEnabled(False)
+        self.delete_btn.setToolTip("Delete selected recording")
         self.delete_btn.clicked.connect(self._delete_selected)
         bottom_bar.addWidget(self.delete_btn)
 
-        self.edit_academic_btn = PushButton("🏷️ Allocate to Subject...", self)
+        self.edit_academic_btn = PushButton("Subject", self)
         self.edit_academic_btn.setIcon(FIF.EDIT)
         self.edit_academic_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.edit_academic_btn.setEnabled(False)
@@ -263,7 +276,7 @@ class RecordingsListWidget(QWidget):
         self.edit_academic_btn.clicked.connect(self._prompt_edit_academic)
         bottom_bar.addWidget(self.edit_academic_btn)
 
-        self.chat_lecture_btn = PushButton("💬 Ask Lecture AI", self)
+        self.chat_lecture_btn = PushButton("Ask AI", self)
         self.chat_lecture_btn.setIcon(FIF.CHAT)
         self.chat_lecture_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.chat_lecture_btn.setEnabled(False)
@@ -271,7 +284,7 @@ class RecordingsListWidget(QWidget):
         self.chat_lecture_btn.clicked.connect(self._chat_selected)
         bottom_bar.addWidget(self.chat_lecture_btn)
 
-        self.load_btn = PrimaryPushButton("Load for Transcription", self)
+        self.load_btn = PrimaryPushButton("Load", self)
         self.load_btn.setIcon(FIF.SEND_FILL)
         self.load_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.load_btn.setEnabled(False)
@@ -479,9 +492,9 @@ class RecordingsListWidget(QWidget):
         self.view_transcript_btn.setEnabled(has_tr)
 
         if has_tr:
-            self.load_btn.setText("⚡ Load Recording & Transcript")
+            self.load_btn.setText("Load & Notes")
         else:
-            self.load_btn.setText("⚡ Load for Transcription")
+            self.load_btn.setText("Load")
 
         # Update notes panel for newly selected recording
         self._current_selected_path = path

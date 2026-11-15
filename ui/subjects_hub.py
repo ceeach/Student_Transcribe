@@ -44,6 +44,7 @@ from qfluentwidgets import (
     PushButton,
     PrimaryPushButton,
     TransparentPushButton,
+    TransparentToolButton,
     CardWidget,
     SimpleCardWidget,
     ListWidget,
@@ -126,9 +127,9 @@ class SubjectsHubWidget(QWidget):
         left_layout.setSpacing(10)
 
         left_header = QHBoxLayout()
-        left_header.addWidget(StrongBodyLabel("📚 Academic Courses", self), 1)
-        self.refresh_subjs_btn = TransparentPushButton(self)
-        self.refresh_subjs_btn.setIcon(FIF.SYNC)
+        left_header.addWidget(StrongBodyLabel("Courses", self), 1)
+        self.refresh_subjs_btn = TransparentToolButton(FIF.SYNC, self)
+        self.refresh_subjs_btn.setFixedSize(28, 28)
         self.refresh_subjs_btn.setToolTip("Refresh subjects and media")
         self.refresh_subjs_btn.clicked.connect(lambda: self.refresh(force=True))
         left_header.addWidget(self.refresh_subjs_btn)
@@ -140,21 +141,25 @@ class SubjectsHubWidget(QWidget):
         left_layout.addWidget(self.search_subject_input)
 
         self.subject_list = ListWidget(self)
+        self.subject_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.subject_list.setTextElideMode(Qt.TextElideMode.ElideRight)
         self.subject_list.itemSelectionChanged.connect(self._on_subject_selection_changed)
         left_layout.addWidget(self.subject_list, 1)
+        left_card.setMinimumWidth(175)
+        left_card.setMaximumWidth(250)
 
         left_actions = QHBoxLayout()
         left_actions.setSpacing(6)
 
-        self.add_subject_btn = PushButton("+ Subject", self)
+        self.add_subject_btn = PushButton("Add", self)
         self.add_subject_btn.setIcon(FIF.ADD)
         self.add_subject_btn.setToolTip("Add a new academic course")
         self.add_subject_btn.clicked.connect(self._prompt_add_subject)
         left_actions.addWidget(self.add_subject_btn, 1)
 
-        self.manage_subject_btn = TransparentPushButton("Manage", self)
-        self.manage_subject_btn.setIcon(FIF.SETTING)
-        self.manage_subject_btn.setToolTip("Edit, rename, or delete subjects")
+        self.manage_subject_btn = TransparentToolButton(FIF.SETTING, self)
+        self.manage_subject_btn.setFixedSize(32, 32)
+        self.manage_subject_btn.setToolTip("Manage, edit, rename, or delete subjects")
         self.manage_subject_btn.clicked.connect(self._open_subject_manager)
         left_actions.addWidget(self.manage_subject_btn)
 
@@ -179,7 +184,7 @@ class SubjectsHubWidget(QWidget):
         banner_info = QVBoxLayout()
         banner_info.setSpacing(4)
 
-        self.subject_title_label = TitleLabel("All Academic Subjects", self.header_card)
+        self.subject_title_label = SubtitleLabel("All Academic Subjects", self.header_card)
         banner_info.addWidget(self.subject_title_label)
 
         self.subject_meta_label = CaptionLabel("Viewing unified repository of all course lectures and materials.", self.header_card)
@@ -188,15 +193,17 @@ class SubjectsHubWidget(QWidget):
         banner_top.addLayout(banner_info, 1)
 
         banner_actions = QHBoxLayout()
-        banner_actions.setSpacing(8)
+        banner_actions.setSpacing(6)
 
-        self.record_for_subj_btn = PushButton("Record Session", self.header_card)
+        self.record_for_subj_btn = PushButton("Record", self.header_card)
         self.record_for_subj_btn.setIcon(FIF.MICROPHONE)
+        self.record_for_subj_btn.setToolTip("Record a new session for this course")
         self.record_for_subj_btn.clicked.connect(self._on_record_for_subject)
         banner_actions.addWidget(self.record_for_subj_btn)
 
-        self.upload_for_subj_btn = PushButton("Upload Media", self.header_card)
+        self.upload_for_subj_btn = PushButton("Upload", self.header_card)
         self.upload_for_subj_btn.setIcon(FIF.FOLDER)
+        self.upload_for_subj_btn.setToolTip("Upload media for this course")
         self.upload_for_subj_btn.clicked.connect(self._on_upload_for_subject)
         banner_actions.addWidget(self.upload_for_subj_btn)
 
@@ -226,10 +233,10 @@ class SubjectsHubWidget(QWidget):
         nav_layout.setContentsMargins(8, 6, 8, 6)
 
         self.segmented_nav = SegmentedWidget(self)
-        self.segmented_nav.addItem("recordings", "🎤 Recordings (0)", onClick=lambda: self.stack.setCurrentIndex(0))
-        self.segmented_nav.addItem("videos", "🎥 Videos (0)", onClick=lambda: self.stack.setCurrentIndex(1))
-        self.segmented_nav.addItem("transcripts", "📄 Transcripts (0)", onClick=lambda: self.stack.setCurrentIndex(2))
-        self.segmented_nav.addItem("summaries", "✨ Summaries (0)", onClick=lambda: self.stack.setCurrentIndex(3))
+        self.segmented_nav.addItem("recordings", "Recordings (0)", onClick=lambda: self.stack.setCurrentIndex(0))
+        self.segmented_nav.addItem("videos", "Videos (0)", onClick=lambda: self.stack.setCurrentIndex(1))
+        self.segmented_nav.addItem("transcripts", "Transcripts (0)", onClick=lambda: self.stack.setCurrentIndex(2))
+        self.segmented_nav.addItem("summaries", "Summaries (0)", onClick=lambda: self.stack.setCurrentIndex(3))
         self.segmented_nav.setCurrentItem("recordings")
         nav_layout.addWidget(self.segmented_nav, 0, Qt.AlignmentFlag.AlignLeft)
         nav_layout.addStretch(1)
@@ -286,22 +293,25 @@ class SubjectsHubWidget(QWidget):
         layout.addWidget(self.rec_table, 1)
 
         btn_row = QHBoxLayout()
-        self.rec_play_btn = PushButton("▶️ Play Audio", self)
+        self.rec_play_btn = PushButton("Play", self)
+        self.rec_play_btn.setIcon(FIF.PLAY)
         self.rec_play_btn.setEnabled(False)
         self.rec_play_btn.clicked.connect(self._play_selected_recording)
         btn_row.addWidget(self.rec_play_btn)
 
-        self.rec_load_btn = PrimaryPushButton("⚡ Load in Studio", self)
+        self.rec_load_btn = PrimaryPushButton("Load", self)
+        self.rec_load_btn.setIcon(FIF.SEND_FILL)
         self.rec_load_btn.setEnabled(False)
         self.rec_load_btn.clicked.connect(self._load_selected_recording)
         btn_row.addWidget(self.rec_load_btn)
 
-        self.rec_chat_btn = PushButton("💬 Ask Lecture AI", self)
+        self.rec_chat_btn = PushButton("Ask AI", self)
+        self.rec_chat_btn.setIcon(FIF.CHAT)
         self.rec_chat_btn.setEnabled(False)
         self.rec_chat_btn.clicked.connect(self._chat_selected_recording)
         btn_row.addWidget(self.rec_chat_btn)
 
-        self.rec_edit_btn = PushButton("🏷️ Allocate to Subject...", self)
+        self.rec_edit_btn = PushButton("Subject", self)
         self.rec_edit_btn.setIcon(FIF.EDIT)
         self.rec_edit_btn.setEnabled(False)
         self.rec_edit_btn.setToolTip("Assign or move this recording to a course or subject")
@@ -820,10 +830,10 @@ class SubjectsHubWidget(QWidget):
         self.stat_sum_label.setText(f"✨ {num_sum} AI Summar{'ies' if num_sum != 1 else 'y'}")
 
         # Update Segmented Nav Titles
-        self.segmented_nav.setItemText("recordings", f"🎤 Recordings ({num_rec})")
-        self.segmented_nav.setItemText("videos", f"🎥 Videos ({num_vid})")
-        self.segmented_nav.setItemText("transcripts", f"📄 Transcripts ({num_tr})")
-        self.segmented_nav.setItemText("summaries", f"✨ Summaries ({num_sum})")
+        self.segmented_nav.setItemText("recordings", f"Recordings ({num_rec})")
+        self.segmented_nav.setItemText("videos", f"Videos ({num_vid})")
+        self.segmented_nav.setItemText("transcripts", f"Transcripts ({num_tr})")
+        self.segmented_nav.setItemText("summaries", f"Summaries ({num_sum})")
 
         # Populate individual tables
         self._populate_recordings_table(data["recordings"])

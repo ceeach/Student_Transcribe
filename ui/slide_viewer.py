@@ -927,8 +927,8 @@ class AnnotatableSlideCanvas(QWidget):
             font = QFont("Segoe UI", 11)
             painter.setFont(font)
             painter.drawText(
-                self.rect(),
-                Qt.AlignmentFlag.AlignCenter,
+                self.rect().adjusted(24, 24, -24, -24),
+                Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap,
                 "Load a Class PDF Deck to preview slides, scroll with your touchpad,\n"
                 "mark 'We Are Here' during lecture, and annotate with Pen, Highlighter, Text, and Shapes.",
             )
@@ -1101,33 +1101,32 @@ class SlideCompanionWidget(QWidget):
         top_bar.setContentsMargins(4, 2, 4, 2)
         top_bar.setSpacing(6)
 
-        self.open_pdf_btn = PushButton("Add Slide Deck...", self)
+        self.open_pdf_btn = PushButton("Open", self)
         self.open_pdf_btn.setIcon(FIF.FOLDER_ADD)
         self.open_pdf_btn.setFixedHeight(32)
-        self.open_pdf_btn.setToolTip("Add one or more PDF slide decks for this class lecture session")
+        self.open_pdf_btn.setToolTip("Open / Add PDF slide deck for this lecture")
         self.open_pdf_btn.clicked.connect(self._prompt_open_pdf)
         top_bar.addWidget(self.open_pdf_btn)
 
         # Multi-deck selector dropdown
         self.deck_combo = ComboBox(self)
         self.deck_combo.setFixedHeight(32)
-        self.deck_combo.setMinimumWidth(160)
+        self.deck_combo.setMinimumWidth(110)
         self.deck_combo.setToolTip("Switch between loaded class slide decks")
         self.deck_combo.currentIndexChanged.connect(self._on_deck_combo_changed)
         top_bar.addWidget(self.deck_combo)
 
         self.remove_deck_btn = TransparentToolButton(FIF.DELETE, self)
-        self.remove_deck_btn.setFixedSize(32, 32)
+        self.remove_deck_btn.setFixedSize(30, 32)
         self.remove_deck_btn.setEnabled(False)
         self.remove_deck_btn.setToolTip("Remove current slide deck from class session")
         self.remove_deck_btn.clicked.connect(self.remove_current_deck)
         top_bar.addWidget(self.remove_deck_btn)
 
-        self.export_pdf_btn = PushButton("Export Annotated PDF...", self)
-        self.export_pdf_btn.setIcon(FIF.SAVE_AS)
-        self.export_pdf_btn.setFixedHeight(32)
+        self.export_pdf_btn = ToolButton(FIF.SAVE_AS, self)
+        self.export_pdf_btn.setFixedSize(32, 32)
         self.export_pdf_btn.setEnabled(False)
-        self.export_pdf_btn.setToolTip("Save a copy of the PDF (or current slide PNG) with all your highlights, drawings, and text burned in")
+        self.export_pdf_btn.setToolTip("Export Annotated PDF / PNG...")
         self.export_pdf_btn.clicked.connect(self._prompt_export_annotated)
         top_bar.addWidget(self.export_pdf_btn)
 
@@ -1144,7 +1143,7 @@ class SlideCompanionWidget(QWidget):
             "• ON (Full Auto-Advance): Automatically flips slides and marks 'We Are Here' in real time"
         )
         self.auto_advance_switch.checkedChanged.connect(self._on_auto_advance_changed)
-        auto_lbl = CaptionLabel("Auto-Sync", self)
+        auto_lbl = CaptionLabel("Auto", self)
         auto_lbl.setToolTip(self.auto_advance_switch.toolTip())
         auto_box.addWidget(self.auto_advance_switch)
         auto_box.addWidget(auto_lbl)
@@ -1163,22 +1162,21 @@ class SlideCompanionWidget(QWidget):
             "• OFF: Allows matching backward to previously covered slides."
         )
         self.forward_only_switch.checkedChanged.connect(self._on_forward_only_changed)
-        forward_lbl = CaptionLabel("Future Only", self)
+        forward_lbl = CaptionLabel("Fwd", self)
         forward_lbl.setToolTip(self.forward_only_switch.toolTip())
         forward_box.addWidget(self.forward_only_switch)
         forward_box.addWidget(forward_lbl)
         top_bar.addLayout(forward_box)
 
         # 1-Click Auto-Map Timeline from Transcript button
-        self.auto_align_btn = PushButton("Auto-Map Timeline", self)
-        self.auto_align_btn.setIcon(FIF.SYNC)
-        self.auto_align_btn.setFixedHeight(32)
+        self.auto_align_btn = ToolButton(FIF.SYNC, self)
+        self.auto_align_btn.setFixedSize(32, 32)
         self.auto_align_btn.setEnabled(False)
-        self.auto_align_btn.setToolTip("Automatically align lecture transcript timeline to all slides in this deck")
+        self.auto_align_btn.setToolTip("Auto-Map Timeline: Align lecture transcript timeline to all slides in this deck")
         self.auto_align_btn.clicked.connect(self._prompt_auto_align_timeline)
         top_bar.addWidget(self.auto_align_btn)
 
-        self.preview_banner_label = CaptionLabel("No slide deck loaded", self)
+        self.preview_banner_label = CaptionLabel("No deck loaded", self)
         top_bar.addWidget(self.preview_banner_label, 1)
 
         # Live Recording Timer indicator while in full-screen slides mode
@@ -1191,9 +1189,8 @@ class SlideCompanionWidget(QWidget):
         top_bar.addWidget(self.live_timer_badge)
 
         # Full-Screen OS Window Toggle Button
-        self.fullscreen_btn = PushButton("Full Screen", self)
-        self.fullscreen_btn.setIcon(FIF.FULL_SCREEN)
-        self.fullscreen_btn.setFixedHeight(32)
+        self.fullscreen_btn = ToolButton(FIF.FULL_SCREEN, self)
+        self.fullscreen_btn.setFixedSize(32, 32)
         self.fullscreen_btn.setToolTip("Toggle full-screen lecture mode")
         self.fullscreen_btn.clicked.connect(self.toggle_window_fullscreen)
         top_bar.addWidget(self.fullscreen_btn)
@@ -1320,7 +1317,7 @@ class SlideCompanionWidget(QWidget):
         # Color Selector with swatches
         self.color_combo = ComboBox(self)
         self.color_combo.setFixedHeight(30)
-        self.color_combo.setMinimumWidth(95)
+        self.color_combo.setMinimumWidth(76)
         color_presets = [
             ("Red", "#ef4444"),
             ("Yellow", "#facc15"),
@@ -1336,7 +1333,7 @@ class SlideCompanionWidget(QWidget):
         draw_bar_1.addWidget(self.color_combo)
 
         self.custom_color_btn = ToolButton(FIF.PALETTE, self)
-        self.custom_color_btn.setFixedSize(32, 32)
+        self.custom_color_btn.setFixedSize(30, 30)
         self.custom_color_btn.setToolTip("Pick a custom color...")
         self.custom_color_btn.clicked.connect(self._pick_custom_color)
         draw_bar_1.addWidget(self.custom_color_btn)
@@ -1344,8 +1341,8 @@ class SlideCompanionWidget(QWidget):
         # Size Selector
         self.size_combo = ComboBox(self)
         self.size_combo.setFixedHeight(30)
-        self.size_combo.setMinimumWidth(85)
-        self.size_combo.addItems(["Thin / S", "Medium / M", "Thick / L", "Bold / XL"])
+        self.size_combo.setMinimumWidth(62)
+        self.size_combo.addItems(["S", "M", "L", "XL"])
         self.size_combo.setCurrentIndex(1)
         self.size_combo.setToolTip("Stroke thickness & text font size")
         self.size_combo.currentIndexChanged.connect(lambda idx: self.canvas.set_size_preset(idx))
@@ -1358,23 +1355,20 @@ class SlideCompanionWidget(QWidget):
         draw_bar_2.setContentsMargins(0, 0, 0, 0)
         draw_bar_2.setSpacing(4)
 
-        self.undo_draw_btn = PushButton("Undo", self)
-        self.undo_draw_btn.setIcon(FIF.RETURN)
-        self.undo_draw_btn.setFixedHeight(28)
+        self.undo_draw_btn = ToolButton(FIF.RETURN, self)
+        self.undo_draw_btn.setFixedSize(30, 28)
         self.undo_draw_btn.setToolTip("Undo last annotation change (Ctrl+Z)")
         self.undo_draw_btn.clicked.connect(lambda: self.canvas.undo_stroke())
         draw_bar_2.addWidget(self.undo_draw_btn)
 
-        self.redo_draw_btn = PushButton("Redo", self)
-        self.redo_draw_btn.setIcon(FIF.ROTATE)
-        self.redo_draw_btn.setFixedHeight(28)
+        self.redo_draw_btn = ToolButton(FIF.ROTATE, self)
+        self.redo_draw_btn.setFixedSize(30, 28)
         self.redo_draw_btn.setToolTip("Redo annotation change (Ctrl+Y)")
         self.redo_draw_btn.clicked.connect(lambda: self.canvas.redo_stroke())
         draw_bar_2.addWidget(self.redo_draw_btn)
 
-        self.clear_draw_btn = PushButton("Clear", self)
-        self.clear_draw_btn.setIcon(FIF.BROOM)
-        self.clear_draw_btn.setFixedHeight(28)
+        self.clear_draw_btn = ToolButton(FIF.BROOM, self)
+        self.clear_draw_btn.setFixedSize(30, 28)
         self.clear_draw_btn.setToolTip("Clear all annotations on this slide")
         self.clear_draw_btn.clicked.connect(lambda: self.canvas.clear_strokes())
         draw_bar_2.addWidget(self.clear_draw_btn)
@@ -1401,16 +1395,14 @@ class SlideCompanionWidget(QWidget):
         draw_bar_2.addStretch(1)
 
         # Quick Pane Toggles
-        self.toggle_deck_btn = PushButton("Deck", self)
-        self.toggle_deck_btn.setIcon(FIF.TILES)
-        self.toggle_deck_btn.setFixedHeight(28)
+        self.toggle_deck_btn = ToolButton(FIF.TILES, self)
+        self.toggle_deck_btn.setFixedSize(30, 28)
         self.toggle_deck_btn.setToolTip("Toggle Left Slide Deck Pane")
         self.toggle_deck_btn.clicked.connect(self._toggle_deck_visibility)
         draw_bar_2.addWidget(self.toggle_deck_btn)
 
-        self.toggle_notes_btn = PushButton("Notes", self)
-        self.toggle_notes_btn.setIcon(FIF.QUICK_NOTE)
-        self.toggle_notes_btn.setFixedHeight(28)
+        self.toggle_notes_btn = ToolButton(FIF.QUICK_NOTE, self)
+        self.toggle_notes_btn.setFixedSize(30, 28)
         self.toggle_notes_btn.setToolTip("Toggle Right Slide Notes Pane")
         self.toggle_notes_btn.clicked.connect(self._toggle_notes_visibility)
         draw_bar_2.addWidget(self.toggle_notes_btn)
@@ -1430,9 +1422,8 @@ class SlideCompanionWidget(QWidget):
         bottom_nav_bar.setSpacing(10)
         bottom_nav_bar.addStretch(1)
 
-        self.prev_btn = PushButton("Previous", self)
-        self.prev_btn.setIcon(FIF.PAGE_LEFT)
-        self.prev_btn.setFixedHeight(32)
+        self.prev_btn = ToolButton(FIF.PAGE_LEFT, self)
+        self.prev_btn.setFixedSize(32, 32)
         self.prev_btn.setEnabled(False)
         self.prev_btn.setToolTip("Preview previous slide (Left Arrow or Touchpad Scroll Left/Up)")
         self.prev_btn.clicked.connect(self.preview_prev_slide)
@@ -1440,19 +1431,18 @@ class SlideCompanionWidget(QWidget):
 
         self.slide_counter_label = StrongBodyLabel("No Deck", self)
         self.slide_counter_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.slide_counter_label.setMinimumWidth(85)
+        self.slide_counter_label.setMinimumWidth(75)
         bottom_nav_bar.addWidget(self.slide_counter_label)
 
-        self.next_btn = PushButton("Next", self)
-        self.next_btn.setIcon(FIF.PAGE_RIGHT)
-        self.next_btn.setFixedHeight(32)
+        self.next_btn = ToolButton(FIF.PAGE_RIGHT, self)
+        self.next_btn.setFixedSize(32, 32)
         self.next_btn.setEnabled(False)
         self.next_btn.setToolTip("Preview next slide (Right Arrow or Touchpad Scroll Right/Down)")
         self.next_btn.clicked.connect(self.preview_next_slide)
         bottom_nav_bar.addWidget(self.next_btn)
 
         # "We Are Here" Action Button right in the bottom middle
-        self.we_are_here_btn = PrimaryPushButton("We Are Here", self)
+        self.we_are_here_btn = PrimaryPushButton("Mark Here", self)
         self.we_are_here_btn.setIcon(FIF.PIN)
         self.we_are_here_btn.setFixedHeight(32)
         self.we_are_here_btn.setEnabled(False)
@@ -1478,7 +1468,7 @@ class SlideCompanionWidget(QWidget):
 
         # 3. Right: Per-Slide Text Annotations & Timestamp Log
         self.notes_card = CardWidget(self)
-        self.notes_card.setMinimumWidth(220)
+        self.notes_card.setMinimumWidth(180)
         self.notes_card.setMaximumWidth(400)
         notes_layout = QVBoxLayout(self.notes_card)
         notes_layout.setContentsMargins(10, 10, 10, 10)
@@ -1509,19 +1499,26 @@ class SlideCompanionWidget(QWidget):
         self.splitter.setStretchFactor(0, 0)
         self.splitter.setStretchFactor(1, 1)
         self.splitter.setStretchFactor(2, 0)
-        self.splitter.setSizes([200, 750, 240])
+        self.splitter.setSizes([160, 520, 200])
 
         main_layout.addWidget(self.splitter, 1)
 
     def _toggle_deck_visibility(self):
         show = self.slide_list.isHidden()
         self.slide_list.setVisible(show)
-        self.toggle_deck_btn.setText("Deck" if show else "Show Deck")
 
     def _toggle_notes_visibility(self):
         show = self.notes_card.isHidden()
         self.notes_card.setVisible(show)
-        self.toggle_notes_btn.setText("Notes" if show else "Show Notes")
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        w = event.size().width()
+        if w < 760:
+            if not self.slide_list.isHidden():
+                self.slide_list.hide()
+        elif w >= 920 and self.slide_list.isHidden() and len(self._decks) > 0:
+            self.slide_list.show()
 
     def set_time_provider(self, time_provider):
         """Set dynamic time provider callable."""

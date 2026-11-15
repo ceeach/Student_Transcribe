@@ -14,8 +14,8 @@ class AudioMeter(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setMinimumHeight(18)
-        self.setMaximumHeight(24)
+        self.setMinimumHeight(6)
+        self.setMaximumHeight(8)
 
         self._level: float = 0.0          # Target level [0.0, 1.0]
         self._display_level: float = 0.0  # Smoothly decayed display level
@@ -55,8 +55,8 @@ class AudioMeter(QWidget):
         height = rect.height()
 
         # Background track
-        bg_color = QColor("#0f172a")
-        border_color = QColor("#334155")
+        bg_color = QColor("#12141a")
+        border_color = QColor("#2a2f3d")
         painter.setBrush(bg_color)
         painter.setPen(border_color)
         painter.drawRoundedRect(0, 0, width - 1, height - 1, 4, 4)
@@ -64,12 +64,12 @@ class AudioMeter(QWidget):
         # Active meter fill
         active_width = int((width - 4) * self._display_level)
         if active_width > 2:
-            # Gradient: Green (quiet) -> Amber (moderate) -> Red (peak)
+            # Gradient: Emerald -> Indigo -> Amber -> Red
             gradient = QLinearGradient(2, 0, width - 2, 0)
-            gradient.setColorAt(0.0, QColor("#10b981"))  # Emerald green
-            gradient.setColorAt(0.65, QColor("#3b82f6")) # Blue
-            gradient.setColorAt(0.85, QColor("#f59e0b")) # Amber
-            gradient.setColorAt(1.0, QColor("#ef4444"))  # Red
+            gradient.setColorAt(0.0, QColor("#10b981"))
+            gradient.setColorAt(0.60, QColor("#6366f1"))
+            gradient.setColorAt(0.85, QColor("#f59e0b"))
+            gradient.setColorAt(1.0, QColor("#ef4444"))
 
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(gradient)

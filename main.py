@@ -77,7 +77,7 @@ from ui.audio_meter import AudioMeter
 from ui.compare_dialog import CompareDialog
 from ui.drop_zone import DropZoneWidget
 from ui.recordings_list import RecordingsListWidget
-from ui.settings_dialog import SettingsDialog
+from ui.settings_dialog import SettingsDialog, SettingsWidget
 from ui.slide_viewer import SlideCompanionWidget
 from ui.video_tab import VideoTabWidget
 from video_watcher import VideoFolderWatcher
@@ -246,6 +246,9 @@ class TranscribeInterface(QWidget):
         self.recordings_list = RecordingsListWidget(parent=self)
         self.recordings_list.setObjectName("historyPage")
 
+        self.settings_page = SettingsWidget(parent=self)
+        self.settings_page.setObjectName("settingsPage")
+
         # Add to stack and pivot (compact labels for sleek titlebar integration)
         self._add_pivot_page(self.record_page, "recordPage", "Record", icon=FIF.MICROPHONE)
         self._add_pivot_page(self.upload_page, "uploadPage", "Upload", icon=FIF.FOLDER)
@@ -253,6 +256,7 @@ class TranscribeInterface(QWidget):
         self._add_pivot_page(self.slide_companion, "slidesPage", "Slides", icon=FIF.ALBUM)
         self._add_pivot_page(self.subjects_hub, "subjectsPage", "Courses", icon=FIF.EDUCATION)
         self._add_pivot_page(self.recordings_list, "historyPage", "History", icon=FIF.HISTORY)
+        self._add_pivot_page(self.settings_page, "settingsPage", "Settings", icon=FIF.SETTING)
 
         self.pivot.setCurrentItem("recordPage")
         self.stacked_widget.setCurrentWidget(self.record_page)
@@ -285,8 +289,12 @@ class TranscribeInterface(QWidget):
             item._orig_icon = icon
 
     def _activate_pivot_subpage(self, widget: QWidget, route_key: str):
+        if route_key == "settingsPage" and hasattr(self, "settings_page"):
+            self.settings_page.reload_from_config()
         self.stacked_widget.setCurrentWidget(widget)
-        self.set_full_screen_slides_mode(route_key in ("slidesPage", "videoPage", "subjectsPage", "historyPage"))
+        self.set_full_screen_slides_mode(
+            route_key in ("slidesPage", "videoPage", "subjectsPage", "historyPage", "settingsPage")
+        )
 
     def set_full_screen_slides_mode(self, enabled: bool):
         """Expand Class Slides or Video Inbox to take 100% of the UI screen by hiding bottom cards."""
@@ -841,7 +849,7 @@ class MainWindow(FluentWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Student Transcribe v1.4.8")
+        self.setWindowTitle("Student Transcribe v1.4.9")
         self.resize(980, 700)
         self.setMinimumSize(640, 520)
 
@@ -950,14 +958,7 @@ class MainWindow(FluentWindow):
         self.top_report_btn.setToolTip("Report a Bug or Suggest Feature on GitHub")
         self.top_report_btn.clicked.connect(open_bug_report)
 
-        # Top Settings button
-        self.top_settings_btn = TransparentToolButton(FIF.SETTING, self.titleBar)
-        self.top_settings_btn.setFixedSize(36, 32)
-        self.top_settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.top_settings_btn.setToolTip("Settings, Updates & Diagnostics")
-        self.top_settings_btn.clicked.connect(self._open_settings)
-
-        # Rebuild titleBar.hBoxLayout with centered pivot, report button, settings button, and no app icon
+        # Rebuild titleBar.hBoxLayout with centered pivot, report button, and no app icon
         while self.titleBar.hBoxLayout.count() > 0:
             self.titleBar.hBoxLayout.takeAt(0)
 
@@ -968,8 +969,6 @@ class MainWindow(FluentWindow):
         if hasattr(self.transcribe_page.pivot, "hBoxLayout"):
             self.transcribe_page.pivot.hBoxLayout.setSpacing(0)
         self.titleBar.hBoxLayout.addWidget(self.top_report_btn, 0, Qt.AlignmentFlag.AlignVCenter)
-        self.titleBar.hBoxLayout.addSpacing(4)
-        self.titleBar.hBoxLayout.addWidget(self.top_settings_btn, 0, Qt.AlignmentFlag.AlignVCenter)
         self.titleBar.hBoxLayout.addSpacing(8)
         self.titleBar.hBoxLayout.addLayout(self.titleBar.vBoxLayout, 0)
 
@@ -978,14 +977,14 @@ class MainWindow(FluentWindow):
         self.titleBar.maxBtn.raise_()
         self.titleBar.closeBtn.raise_()
         self.top_report_btn.raise_()
-        self.top_settings_btn.raise_()
 
         # Constrain initial pivot maximum width to protect right-side window buttons
-        available_width = max(320, self.width() - 240)
+        available_width = max(320, self.width() - 190)
         self.transcribe_page.pivot.setMaximumWidth(available_width)
 
-        # Reference to recordings list inside transcribe_page
+        # Reference to recordings list inside transcribe_page & wire embedded settings tab
         self.recordings_list = self.transcribe_page.recordings_list
+        self.transcribe_page.settings_page.settings_saved.connect(self._on_settings_saved)
 
         self.addSubInterface(
             self.transcribe_page,
@@ -1012,15 +1011,13 @@ class MainWindow(FluentWindow):
                 self.titleBar.closeBtn.raise_()
             if hasattr(self, "top_report_btn"):
                 self.top_report_btn.raise_()
-            if hasattr(self, "top_settings_btn"):
-                self.top_settings_btn.raise_()
             if hasattr(self, "transcribe_page") and hasattr(self.transcribe_page, "pivot"):
-                available_width = max(320, self.width() - 210)
+                available_width = max(320, self.width() - 190)
                 self.transcribe_page.pivot.setMaximumWidth(available_width)
-                is_narrow = self.width() < 800
+                is_narrow = self.width() < 860
                 if self.titleBar.hBoxLayout.count() >= 4:
                     self.titleBar.hBoxLayout.setStretch(1, 0 if is_narrow else 1)
-                for route_key in ("recordPage", "uploadPage", "videoPage", "slidesPage", "subjectsPage", "historyPage"):
+                for route_key in ("recordPage", "uploadPage", "videoPage", "slidesPage", "subjectsPage", "historyPage", "settingsPage"):
                     item = self.transcribe_page.pivot.items.get(route_key)
                     if item is not None:
                         item.setMaximumWidth(16777215)
@@ -1357,10 +1354,13 @@ class MainWindow(FluentWindow):
     def _on_pivot_changed(self, route_key: str):
         if hasattr(self, "stackedWidget") and self.stackedWidget.currentWidget() != self.transcribe_page:
             self.switchTo(self.transcribe_page)
-        is_fullscreen_tab = (route_key in ("slidesPage", "videoPage", "subjectsPage", "historyPage"))
+        is_fullscreen_tab = (route_key in ("slidesPage", "videoPage", "subjectsPage", "historyPage", "settingsPage"))
         self._tp.set_full_screen_slides_mode(is_fullscreen_tab)
 
-        if route_key == "slidesPage":
+        if route_key == "settingsPage":
+            self._tp.settings_page.reload_from_config()
+            self._tp.stacked_widget.setCurrentWidget(self._tp.settings_page)
+        elif route_key == "slidesPage":
             self._tp.stacked_widget.setCurrentWidget(self._tp.slide_companion)
         elif route_key == "recordPage":
             self._tp.stacked_widget.setCurrentWidget(self._tp.record_page)
@@ -1912,9 +1912,12 @@ class MainWindow(FluentWindow):
     # Settings & Diagnostics
     # ==========================
     def _open_settings(self):
-        dlg = SettingsDialog(self)
-        dlg.settings_saved.connect(self._on_settings_saved)
-        dlg.exec()
+        """Switch directly to the embedded Settings tab."""
+        self.switchTo(self.transcribe_page)
+        self._tp.settings_page.reload_from_config()
+        self._tp.pivot.setCurrentItem("settingsPage")
+        self._tp.stacked_widget.setCurrentWidget(self._tp.settings_page)
+        self._on_pivot_changed("settingsPage")
 
     def _open_logs(self):
         """Open the application diagnostics log file in default viewer."""
@@ -2932,7 +2935,7 @@ def main():
     if sys.platform == "win32":
         try:
             import ctypes
-            myappid = "studenttranscribe.app.1.4.8"
+            myappid = "studenttranscribe.app.1.4.9"
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
         except Exception:
             pass

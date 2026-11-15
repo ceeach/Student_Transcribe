@@ -47,18 +47,21 @@ from ui.benchmark_dialog import BenchmarkDialog
 from updater import APP_VERSION, CheckUpdateWorker, UpdateDialog, open_bug_report
 
 
-class SettingsDialog(QDialog):
-    """Modal dialog for application settings."""
+class SettingsWidget(QWidget):
+    """Reusable settings panel for embedded tab or modal dialog."""
 
     settings_saved = pyqtSignal()
+    close_requested = pyqtSignal(bool)  # True = accepted/saved, False = cancelled
 
-    def __init__(self, parent: Optional[QWidget] = None):
+    def __init__(self, parent: Optional[QWidget] = None, is_dialog: bool = False):
         super().__init__(parent)
-        self.setWindowTitle("Student Transcribe Settings")
-        self.resize(640, 720)
-        self.setModal(True)
+        self._is_dialog = is_dialog
 
         self._init_ui()
+        self._load_values()
+
+    def reload_from_config(self):
+        """Refresh UI controls from the latest persisted configuration."""
         self._load_values()
 
     def _create_form_row(self, label_text: str, widget, tooltip: str = "") -> QHBoxLayout:
@@ -70,6 +73,7 @@ class SettingsDialog(QDialog):
                 widget.setToolTip(tooltip)
         layout.addWidget(label, 1)
         if hasattr(widget, "isWidgetType") and widget.isWidgetType():
+            widget.setMinimumWidth(0)
             layout.addWidget(widget, 2)
         else:
             layout.addLayout(widget, 2)
@@ -90,6 +94,7 @@ class SettingsDialog(QDialog):
         # Smooth Scroll Area for settings cards
         scroll = SingleDirectionScrollArea(self)
         scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
 
         scroll_content = QWidget()
@@ -449,18 +454,18 @@ class SettingsDialog(QDialog):
         about_layout.addWidget(self.auto_check_updates_cb)
 
         updates_row = QHBoxLayout()
-        updates_row.setSpacing(10)
-        self.check_updates_btn = PrimaryPushButton("⚡ Check for Updates...", self)
+        updates_row.setSpacing(8)
+        self.check_updates_btn = PrimaryPushButton("Check for Updates", self)
         self.check_updates_btn.setIcon(FIF.SYNC)
         self.check_updates_btn.clicked.connect(self._check_for_updates_manually)
         updates_row.addWidget(self.check_updates_btn)
 
-        self.report_bug_btn = PushButton("🐛 Report a Bug / Request Feature...", self)
+        self.report_bug_btn = PushButton("Report Bug", self)
         self.report_bug_btn.setIcon(FIF.FEEDBACK)
         self.report_bug_btn.clicked.connect(open_bug_report)
         updates_row.addWidget(self.report_bug_btn)
 
-        self.github_btn = PushButton("⭐ Star on GitHub", self)
+        self.github_btn = PushButton("Star on GitHub", self)
         self.github_btn.setIcon(FIF.SHARE)
         self.github_btn.clicked.connect(lambda: webbrowser.open("https://github.com/ceeach/Student_Transcribe"))
         updates_row.addWidget(self.github_btn)
@@ -475,24 +480,32 @@ class SettingsDialog(QDialog):
         scroll.setWidget(scroll_content)
         root_layout.addWidget(scroll, 1)
 
-        # Dialog Buttons (fixed at the bottom)
+        # Action Buttons (fixed at the bottom)
         button_layout = QHBoxLayout()
+        button_layout.setSpacing(8)
 
-        self.report_bug_bottom_btn = TransparentPushButton("🐛 Report a Bug", self)
+        self.report_bug_bottom_btn = TransparentPushButton("Report a Bug", self)
         self.report_bug_bottom_btn.setToolTip("Open GitHub to report a problem or suggest a feature")
         self.report_bug_bottom_btn.clicked.connect(open_bug_report)
         button_layout.addWidget(self.report_bug_bottom_btn)
 
         button_layout.addStretch(1)
-        
-        self.cancel_btn = PushButton("Cancel", self)
-        self.cancel_btn.clicked.connect(self.reject)
-        button_layout.addWidget(self.cancel_btn)
-        
-        self.save_btn = PrimaryPushButton("Save", self)
+
+        if self._is_dialog:
+            self.cancel_btn = PushButton("Cancel", self)
+            self.cancel_btn.clicked.connect(lambda: self.close_requested.emit(False))
+            button_layout.addWidget(self.cancel_btn)
+        else:
+            self.revert_btn = PushButton("Revert", self)
+            self.revert_btn.setToolTip("Discard unsaved changes and reload saved settings")
+            self.revert_btn.clicked.connect(self.reload_from_config)
+            button_layout.addWidget(self.revert_btn)
+
+        save_label = "Save" if self._is_dialog else "Save Settings"
+        self.save_btn = PrimaryPushButton(save_label, self)
         self.save_btn.clicked.connect(self._save_and_close)
         button_layout.addWidget(self.save_btn)
-        
+
         root_layout.addLayout(button_layout)
 
     def _browse_video_folder(self):
@@ -814,7 +827,18 @@ class SettingsDialog(QDialog):
         saved = config_manager.save(new_settings)
         if saved:
             self.settings_saved.emit()
-            self.accept()
+            if self._is_dialog:
+                self.close_requested.emit(True)
+            else:
+                InfoBar.success(
+                    title="Settings Saved",
+                    content="Your configuration has been saved and applied.",
+                    orient=Qt.Orientation.Horizontal,
+                    isClosable=True,
+                    position=InfoBarPosition.TOP,
+                    duration=2500,
+                    parent=self.window() or self,
+                )
         else:
             InfoBar.error(
                 title="Error Saving Settings",
@@ -823,5 +847,30 @@ class SettingsDialog(QDialog):
                 isClosable=True,
                 position=InfoBarPosition.TOP,
                 duration=3000,
-                parent=self
+                parent=self.window() or self,
             )
+
+
+class SettingsDialog(QDialog):
+    """Modal dialog wrapper around SettingsWidget for backwards compatibility."""
+
+    settings_saved = pyqtSignal()
+
+    def __init__(self, parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        self.setWindowTitle("Student Transcribe Settings")
+        self.resize(640, 720)
+        self.setModal(True)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        self.widget = SettingsWidget(parent=self, is_dialog=True)
+        self.widget.settings_saved.connect(self.settings_saved.emit)
+        self.widget.close_requested.connect(self._on_close_requested)
+        layout.addWidget(self.widget)
+
+    def _on_close_requested(self, accepted: bool):
+        if accepted:
+            self.accept()
+        else:
+            self.reject()
